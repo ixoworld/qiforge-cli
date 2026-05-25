@@ -1,0 +1,49 @@
+# {{nameClass}} plugin
+
+> Scaffolded by `qiforge-cli plugin new {{nameKebab}}`. Replace this stub with
+> your real documentation once the plugin is implemented.
+
+## Summary
+
+TODO: one-sentence summary of what this plugin does.
+
+## When to use
+
+- TODO: describe when the agent should reach for this plugin.
+
+## When NOT to use
+
+- TODO: list cases where the agent should NOT call this plugin.
+
+## Tools
+
+| Tool | Description |
+| --- | --- |
+| `{{nameCamel}}_echo` | Echoes the provided message. Sample tool — replace. |
+
+## Configuration
+
+This plugin currently declares an empty `configSchema`. Add any required env
+vars in `{{nameKebab}}.plugin.ts` so the runtime validates them at boot.
+
+## Registering
+
+Wire this plugin into your oracle in `src/main.ts`:
+
+```ts
+import { {{nameClass}}Plugin } from './plugins/{{nameKebab}}/{{nameKebab}}.plugin.js';
+
+await createOracleApp({
+  config,
+  plugins: [
+    // ...other plugins
+    new {{nameClass}}Plugin(),
+  ],
+});
+```
+
+## Testing
+
+```bash
+pnpm test src/plugins/{{nameKebab}}
+```

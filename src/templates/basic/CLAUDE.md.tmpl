@@ -1,0 +1,55 @@
+# {{name}}
+
+{{description}}
+
+This file is read by Claude Code (and other agentic IDEs) at the start of every session — it's the project's living context.
+
+## What this oracle is
+
+A QiForge oracle built on `@ixo/oracle-runtime`. The runtime handles HTTP, auth (UCAN), the agent graph, the LangGraph checkpointer, Matrix sync, and bundles 14 plugins by default. **You** ship: oracle identity, optional custom plugins, glue.
+
+- **Organization:** {{org}}
+- **Framework:** [QiForge](https://docs.ixo.world/build-an-oracle) (`@ixo/oracle-runtime`)
+- **Public docs:** https://docs.ixo.world/build-an-oracle
+- **AI-agent reference:** https://docs.ixo.world/build-an-oracle/for-ai-agents
+
+## Layout
+
+```
+src/
+├── main.ts        # bootstrap — calls createOracleApp({ config, plugins, … }) and listen()
+├── config.ts      # oracle identity + system prompt (name, org, description, prompt)
+└── plugins/       # custom plugins — one folder per plugin
+```
+
+Each custom plugin lives at `src/plugins/<name>/<name>.plugin.ts` with a colocated `<name>.plugin.test.ts`. The runtime auto-discovers nothing — every plugin must be passed in `plugins: []` in `main.ts`.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Hot-reload dev server (`tsx watch src/main.ts`). |
+| `pnpm build` | TypeScript → `dist/`. |
+| `pnpm start` | Run the compiled build. |
+| `pnpm typecheck` | Type-check without emit. |
+| `pnpm test` | Unit tests (vitest). |
+| `qiforge-cli plugin new <name>` | Scaffold a new plugin into `src/plugins/<name>/`. |
+
+## When the user asks "how do I…?"
+
+A bundled skill at `.claude/skills/qiforge-oracle/SKILL.md` carries the dense how-to (plugin anatomy, recipes, env vars, the 14 bundled plugins, testing patterns). Trigger it for any oracle/plugin authoring question — the references load on demand so context stays light.
+
+If the skill files don't cover it, fall back to:
+
+1. The public docs at https://docs.ixo.world/build-an-oracle
+2. `src/main.ts` and any existing plugin under `src/plugins/` (canonical local examples)
+
+## Working with plugins
+
+- Add a plugin via `qiforge-cli plugin new <name>` — produces a working skeleton with one tool + three tests.
+- Register the new plugin in `src/main.ts` (the scaffold prints the exact snippet).
+- The runtime validates the env at boot — every plugin's `configSchema` is merged into the composed schema. Missing required env vars fail fast with a clear error pointing at the plugin that needed them.
+
+## Environment
+
+`.env` holds secrets — never commit. `.env.example` lists every variable the bundled plugins and Tier-0 runtime need. Add plugin-specific variables to your plugin's `configSchema` (don't reach for `process.env` directly).

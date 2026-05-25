@@ -1,0 +1,77 @@
+import {
+  OraclePlugin,
+  type PluginContext,
+  type PluginManifest,
+  type PluginTool,
+  tool,
+  z,
+} from '@ixo/oracle-runtime';
+
+const NAME = '{{nameKebab}}';
+const VERSION = '0.1.0';
+
+const configSchema = z.object({
+  // Add plugin-specific env vars here. They'll be merged into the runtime's
+  // composed env schema and validated at boot.
+});
+
+const manifest: PluginManifest = {
+  title: '{{nameClass}}',
+  summary: 'TODO: one-sentence summary of what this plugin does.',
+  whenToUse: [
+    'TODO: describe when the agent should reach for this plugin.',
+  ],
+  whenNotToUse: [
+    'TODO: list cases where the agent should NOT call this plugin.',
+  ],
+  examples: [
+    {
+      user: 'TODO: example user utterance.',
+      tool: '{{nameCamel}}_echo',
+      args: { message: 'hello' },
+    },
+  ],
+  tags: ['{{nameKebab}}'],
+  category: 'data',
+  visibility: 'on-demand',
+  stability: 'experimental',
+};
+
+/**
+ * {{nameClass}} plugin — scaffolded by `qiforge-cli plugin new {{nameKebab}}`.
+ *
+ * Replace the sample tool below with your real capability. See the QiForge
+ * docs for the full `OraclePlugin` API surface (getTools, getRequestTools,
+ * getSubAgents, getMiddlewares, getNestModules, getSharedState, etc.).
+ */
+export class {{nameClass}}Plugin extends OraclePlugin {
+  readonly name = NAME;
+
+  readonly version = VERSION;
+
+  readonly manifest = manifest;
+
+  override readonly configSchema = configSchema;
+
+  override autoDetect(): boolean {
+    return true;
+  }
+
+  override getTools(_ctx: PluginContext): PluginTool[] {
+    return [
+      tool(
+        async (args) => {
+          const { message } = args as { message: string };
+          return { echoed: message };
+        },
+        {
+          name: '{{nameCamel}}_echo',
+          description: 'Echoes the provided message. Replace with a real tool.',
+          schema: z.object({
+            message: z.string().describe('Message to echo back.'),
+          }),
+        },
+      ),
+    ];
+  }
+}

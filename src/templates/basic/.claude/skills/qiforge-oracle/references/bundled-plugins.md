@@ -1,0 +1,107 @@
+# Bundled plugins
+
+The runtime ships 14 plugins out of the box. They all resolve at boot — toggling is via `features` in `createOracleApp`, and most are gated by `autoDetect` on their env vars.
+
+## The catalog
+
+| Name | Visibility | Default behavior | Required env | What it does |
+| --- | --- | --- | --- | --- |
+| `memory` | always | on | `MEMORY_MCP_URL`, `MEMORY_ENGINE_URL` | Per-user encrypted memory via the Memory Engine. |
+| `portal` | on-demand | on | — | IXO entity / portal lookups. |
+| `firecrawl` | on-demand | auto-detect | `FIRECRAWL_MCP_URL` | Web crawl / scrape via Firecrawl MCP. |
+| `domain-indexer` | always | on | — | Browse IXO domain entities. |
+| `composio` | on-demand | auto-detect | `COMPOSIO_API_KEY` | 250+ SaaS integrations (Gmail, Slack, Notion, etc.). |
+| `sandbox` | always | auto-detect | `SANDBOX_MCP_URL` | Sandboxed code/file execution. |
+| `skills` | always | on (needs `sandbox`) | — | Discover and run capsule skills. |
+| `editor` | on-demand | on (needs Matrix) | — | Collaborative document editor (Matrix-backed). |
+| `agui` | on-demand | on | — | Agentic UI primitives. |
+| `slack` | silent | auto-detect | `SLACK_BOT_OAUTH_TOKEN` | Slack bot integration. |
+| `tasks` | stub | auto-detect | `REDIS_URL` | Background queues (BullMQ) — currently stub. |
+| `credits` | silent | on unless `DISABLE_CREDITS=true` | — | Per-user credit accounting. |
+| `calls` | stub | on | — | Voice/calls — currently stub. |
+| `user-preferences` | always | on | — | Per-user preference store. |
+
+## Toggling
+
+```ts
+await createOracleApp({
+  config,
+  features: {
+    composio: false,         // hard off — never load
+    firecrawl: 'auto',       // default — run autoDetect
+    memory: true,            // hard on — load even without env (fail at boot if missing)
+  },
+});
+```
+
+| Value | Behavior |
+| --- | --- |
+| `true` | Force on — bypass autoDetect. Missing required env throws at boot. |
+| `false` | Force off — never load, never in registries. |
+| `'auto'` | Default — run `autoDetect(env)`. |
+
+## Replacing a bundled plugin
+
+The plugin loader dedupes by `name`. To customize a bundled plugin, instantiate it explicitly in `plugins: []` — your instance wins:
+
+```ts
+import { EditorPlugin, createOracleApp } from '@ixo/oracle-runtime';
+
+await createOracleApp({
+  config,
+  plugins: [
+    new EditorPlugin({ matrixClient }),    // overrides the bundled default
+  ],
+});
+```
+
+This is the canonical pattern for plugins that need live runtime objects (Matrix client, Redis).
+
+## Adding global oracle knowledge (memory plugin)
+
+Global knowledge is content the oracle should know on every turn for every user. It is stored on the Memory Engine under the **oracle entity's DID**, not under any individual user.
+
+**Preconditions**
+
+- You must be `owner` or `controller` on the oracle's IXO entity (the entity `qiforge-cli create-entity` registered). The Memory Engine rejects writes from any other DID.
+
+**Plugin configuration** — the default selection does NOT include `memory-engine__add_oracle_knowledge`. Enable it explicitly:
+
+```ts
+import {
+  createOracleApp,
+  MemoryPlugin,
+  DEFAULT_MEMORY_TOOLS,
+  MEMORY_ADD_ORACLE_KNOWLEDGE_MCP_NAME,
+} from '@ixo/oracle-runtime';
+
+await createOracleApp({
+  config,
+  plugins: [
+    new MemoryPlugin({
+      selectedTools: [
+        ...DEFAULT_MEMORY_TOOLS,
+        MEMORY_ADD_ORACLE_KNOWLEDGE_MCP_NAME,
+      ],
+    }),
+  ],
+});
+```
+
+**Workflow**
+
+1. Boot the oracle (`pnpm dev`).
+2. Open the Portal for the matching network and connect:
+   - devnet: `https://dev.portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+   - testnet: `https://test.portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+   - mainnet: `https://portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+3. Sign in as the entity owner/controller and click the highlighted "Connect" action — the Portal opens a chat session bound to the oracle.
+4. Drag and drop files (PDFs, markdown, text), paste links, or paste raw text. Then say "Save this into the global oracle knowledge."
+5. Wait ~5 minutes for indexing. After that, every user's session can recall it through `memory-engine__search_memory_engine`.
+
+**Warning** — `add_oracle_knowledge` writes are visible to every user that talks to this oracle. Treat it like a public knowledge base.
+
+## Source of truth
+
+- https://docs.ixo.world/build-an-oracle/reference/bundled-plugins
+- https://docs.ixo.world/build-an-oracle/develop/enable-bundled-plugins

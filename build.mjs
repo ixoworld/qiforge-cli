@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { rmSync } from 'fs';
+import { cpSync, rmSync } from 'fs';
 
 rmSync('dist', { recursive: true, force: true });
 
@@ -24,4 +24,9 @@ await build({
   external: ['@matrix-org/matrix-sdk-crypto-wasm', 'qrcode-terminal'],
 });
 
-console.log('Build complete: dist/cli.js');
+// esbuild doesn't touch non-JS assets. The CLI looks up templates relative
+// to its own dist directory via `getTemplatesDir(__dirname)`, so the source
+// tree at `src/templates/**` has to land at `dist/templates/**`.
+cpSync('src/templates', 'dist/templates', { recursive: true });
+
+console.log('Build complete: dist/cli.js (+ dist/templates/)');

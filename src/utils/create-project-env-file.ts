@@ -35,7 +35,9 @@ interface EnvValues {
 
 function buildEnvContent(net: NETWORK, values: EnvValues): string {
   return `
-PORT=4000
+NODE_ENV=development
+PORT=3000
+CORS_ORIGIN=*
 ORACLE_NAME=${values.oracleName}
 
 # Network
@@ -52,14 +54,14 @@ MATRIX_ORACLE_ADMIN_USER_ID=${values.matrixUserId}
 MATRIX_RECOVERY_PHRASE="${values.matrixRecoveryPhrase}"
 MATRIX_VALUE_PIN=${values.matrixPin}
 MATRIX_ACCOUNT_ROOM_ID="${values.matrixRoomId}"
-MATRIX_STORE_PATH=./matrix-storage
+MATRIX_STORE_PATH=./.data/matrix-storage
 
 # Blockchain
 SECP_MNEMONIC="${values.mnemonic}"
 ORACLE_ENTITY_DID=${values.entityDid}
 
 # Database
-SQLITE_DATABASE_PATH=./sqlite-db
+SQLITE_DATABASE_PATH=./.data/sqlite
 REDIS_URL=redis://localhost:6379
 
 # LLM (add your API keys)
@@ -83,7 +85,6 @@ LANGSMITH_PROJECT="${values.oracleName}_${net}"
 
 
 DISABLE_CREDITS=true
-CORS_ORIGIN=*
 SUBSCRIPTION_URL=${SUBSCRIPTION_API[net]}
 
 ### BACKUP — save these securely (values above are already set)
@@ -101,7 +102,8 @@ COMPOSIO_API_KEY=${values.composioApiKey}
 function buildEnvContentForNetwork(net: NETWORK, oracleName: string): string {
   return `# To fill in the blank values, run: qiforge-cli create-entity (select ${net})
 
-PORT=4000
+NODE_ENV=development
+PORT=3000
 ORACLE_NAME=${oracleName}
 
 # Network
@@ -118,14 +120,14 @@ MATRIX_ORACLE_ADMIN_USER_ID=
 MATRIX_RECOVERY_PHRASE=
 MATRIX_VALUE_PIN=
 MATRIX_ACCOUNT_ROOM_ID=
-MATRIX_STORE_PATH=./matrix-storage
+MATRIX_STORE_PATH=./.data/matrix-storage
 
 # Blockchain
 SECP_MNEMONIC=
 ORACLE_ENTITY_DID=
 
 # Database
-SQLITE_DATABASE_PATH=./sqlite-db
+SQLITE_DATABASE_PATH=./.data/sqlite
 REDIS_URL=redis://localhost:6379
 
 # LLM (add your API keys)
@@ -178,7 +180,7 @@ export const createProjectEnvFile = async (config: RuntimeConfig, userDid: strin
     deviceName: 'Oracle Service',
   });
   const projectPath = config.getOrThrow('projectPath');
-  const envDir = path.join(projectPath, 'apps', 'app');
+  const envDir = projectPath;
 
   console.log('Creating env files in:', envDir);
 

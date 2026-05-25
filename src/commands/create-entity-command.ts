@@ -10,6 +10,7 @@ import {
   checkRequiredString,
   checkRequiredURL,
   MatrixHomeServerUrl,
+  PARENT_PROTOCOL_DID,
   PORTAL_URL,
   RELAYER_NODE_DID,
   selectNetwork,
@@ -18,8 +19,6 @@ import { CreateEntity } from '../utils/entity';
 import { saveOracleConfig } from '../utils/oracle-config';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
-
-const DEFAULT_PARENT_PROTOCOL = 'did:ixo:entity:1a76366f16570483cea72b111b27fd78';
 
 export class CreateEntityCommand implements Command {
   name = 'create-entity';
@@ -88,7 +87,7 @@ export class CreateEntityCommand implements Command {
       location = flags.location ?? 'New York, NY';
       description = flags.description ?? 'We are a company that helps you with daily tasks';
       website = flags.website;
-      parentProtocol = DEFAULT_PARENT_PROTOCOL;
+      parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
       apiUrl = flags['api-url'] ?? 'http://localhost:4000';
       matrixHomeServerUrl = defaultMatrixUrl;
       relayerNodeDid = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
@@ -202,12 +201,12 @@ export class CreateEntityCommand implements Command {
               message: 'What is the parent protocol of the entity?',
               options: [
                 {
-                  value: 'did:ixo:entity:1a76366f16570483cea72b111b27fd78',
-                  label: 'IXO Oracle Protocol',
-                  hint: 'default protocol',
+                  value: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
+                  label: `IXO Oracle Protocol (${currentNetwork ?? 'devnet'})`,
+                  hint: 'default protocol for the selected network',
                 },
               ],
-              initialValue: 'did:ixo:entity:1a76366f16570483cea72b111b27fd78',
+              initialValue: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
             }),
           apiUrl: () =>
             p.text({

@@ -1,0 +1,23 @@
+import { createTestRuntime } from '@ixo/oracle-runtime/testing';
+import { describe, expect, it } from 'vitest';
+import { {{nameClass}}Plugin } from './{{nameKebab}}.plugin.js';
+
+describe('{{nameClass}}Plugin', () => {
+  it('boots without error', async () => {
+    const rt = await createTestRuntime({ plugins: [new {{nameClass}}Plugin()] });
+    expect(rt.listTools().map((t) => t.name)).toContain('{{nameCamel}}_echo');
+    await rt.close();
+  });
+
+  it('echoes the supplied message', async () => {
+    const rt = await createTestRuntime({ plugins: [new {{nameClass}}Plugin()] });
+    const result = await rt.invokeTool('{{nameCamel}}_echo', { message: 'hi' });
+    expect(result).toEqual({ echoed: 'hi' });
+    await rt.close();
+  });
+
+  it('matches the manifest snapshot', () => {
+    const plugin = new {{nameClass}}Plugin();
+    expect(plugin.manifest).toMatchSnapshot();
+  });
+});

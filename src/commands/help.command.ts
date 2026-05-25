@@ -20,15 +20,28 @@ COMMANDS:
 ${commands.map((cmd) => `  ${cmd.name.padEnd(15)} ${cmd.description}`).join('\n')}
 
 EXAMPLES:
-  qiforge-cli --init          Initialize a new IXO Oracle project
-  qiforge-cli --chat          Chat with your oracle
-  qiforge-cli                 Launch interactive menu
-  qiforge-cli help            Show this help message
+  qiforge-cli new my-oracle           Scaffold a new oracle from the bundled starter
+  qiforge-cli plugin new climate      Scaffold a plugin into the current oracle project
+  qiforge-cli --chat                  Chat with your oracle
+  qiforge-cli                         Launch interactive menu
+  qiforge-cli help                    Show this help message
 
 OPTIONS:
-  --init                      Initialize a new project (shortcut)
   --chat                      Start a chat session with your oracle
   --help, -h                  Show help information
+
+NEW COMMAND FLAGS (qiforge-cli new):
+  --no-interactive            Skip prompts; requires --name
+  --name <name>               Project / oracle name
+  --path <dir>                Target directory (default: ./\<name\>)
+  --template <name>           Starter template (default: basic). See src/templates/index.json
+  --description <text>        One-line oracle description
+  --org <name>                Organization name (default: IXO)
+  --install                   Run pnpm install after scaffolding
+  --force                     Overwrite an existing non-empty target dir
+
+PLUGIN NEW COMMAND FLAGS (qiforge-cli plugin new \<name\>):
+  --cwd <dir>                 Project directory (default: current working dir)
 
 For more information, visit: https://www.npmjs.com/package/qiforge-cli
 `;
