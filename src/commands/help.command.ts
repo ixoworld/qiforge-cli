@@ -34,6 +34,7 @@ NEW COMMAND FLAGS (qiforge-cli new):
   --no-interactive            Skip prompts; requires --name
   --name <name>               Project / oracle name
   --path <dir>                Target directory (default: ./\<name\>)
+  --template <name>           Starter template (default: basic). See src/templates/index.json
   --description <text>        One-line oracle description
   --org <name>                Organization name (default: IXO)
   --install                   Run pnpm install after scaffolding

@@ -7,6 +7,7 @@ import { CLIResult } from '../types';
 import { parseCliFlags } from '../utils/cli-flags';
 import { createProjectEnvFile } from '../utils/create-project-env-file';
 import { RuntimeConfig } from '../utils/runtime-config';
+import { findTemplate, loadTemplateCatalog, type TemplateEntry } from '../utils/template-catalog';
 import { renderTemplate } from '../utils/template-renderer';
 import { getTemplatesDir } from '../utils/templates-dir';
 import { Wallet } from '../utils/wallet';
@@ -113,6 +114,30 @@ export class NewCommand implements Command {
     return Boolean(answer);
   }
 
+  /**
+   * Prompt for a template when more than one is available. Single-template
+   * catalogs short-circuit silently so the basic-only setup is one prompt
+   * lighter.
+   */
+  private async pickTemplate(catalog: TemplateEntry[]): Promise<TemplateEntry> {
+    if (catalog.length === 1) return catalog[0]!;
+
+    const choice = await p.select({
+      message: 'Pick a template:',
+      options: catalog.map((t) => ({
+        value: t.name,
+        label: t.name,
+        hint: t.description,
+      })),
+      initialValue: 'basic',
+    });
+    if (p.isCancel(choice)) {
+      p.cancel('Operation cancelled.');
+      process.exit(0);
+    }
+    return findTemplate(catalog, String(choice));
+  }
+
   private runPnpmInstall(projectPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn('pnpm', ['install'], {
@@ -133,11 +158,15 @@ export class NewCommand implements Command {
       const flags = parseCliFlags();
       const noInteractive = flags['no-interactive'] === 'true';
 
+      const templatesDir = getTemplatesDir(__dirname);
+      const catalog = loadTemplateCatalog(templatesDir);
+
       let projectPath: string;
       let projectName: string;
       let description: string;
       let org: string;
       let install: boolean;
+      let template: TemplateEntry;
 
       if (noInteractive && flags.name) {
         projectName = flags.name;
@@ -147,6 +176,7 @@ export class NewCommand implements Command {
         description = flags.description ?? 'An oracle built with QiForge.';
         org = flags.org ?? 'IXO';
         install = flags.install === 'true';
+        template = findTemplate(catalog, flags.template ?? 'basic');
 
         if (!isValidProjectName(projectName)) {
           return { success: false, error: `Invalid project name: ${projectName}` };
@@ -171,6 +201,12 @@ export class NewCommand implements Command {
           if (!ok) return { success: false, data: 'Project creation cancelled' };
         }
 
+        // --template flag wins; otherwise prompt (and skip the prompt when
+        // the catalog has only one entry).
+        template = flags.template
+          ? findTemplate(catalog, flags.template)
+          : await this.pickTemplate(catalog);
+
         description = await this.getDescription();
         org = await this.getOrg();
         install = await this.confirmInstall();
@@ -180,15 +216,14 @@ export class NewCommand implements Command {
       this.config.addValue('projectName', projectName);
 
       const renderSpinner = p.spinner();
-      renderSpinner.start('Scaffolding project files…');
+      renderSpinner.start(`Scaffolding project files (template: ${template.name})…`);
       try {
         if (existsSync(projectPath) && isDirNonEmpty(projectPath)) {
           rmSync(projectPath, { recursive: true, force: true });
         }
-        const templatesDir = getTemplatesDir(__dirname);
-        const starterDir = path.join(templatesDir, 'starter');
+        const templateDir = path.join(templatesDir, template.name);
         renderTemplate({
-          sourceDir: starterDir,
+          sourceDir: templateDir,
           targetDir: projectPath,
           vars: {
             name: projectName,

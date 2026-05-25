@@ -1,0 +1,9 @@
+{
+  "templates": [
+    {
+      "name": "basic",
+      "description": "Standalone QiForge oracle: createOracleApp + Matrix wiring + EditorPlugin + Claude Code skill.",
+      "tags": ["starter", "minimal"]
+    }
+  ]
+}

@@ -8,15 +8,15 @@ import { renderTemplate, toCamelCase, toPascalCase } from '../utils/template-ren
  * sanity-checking the output. Catches missing placeholders / broken syntax
  * without booting a full project.
  */
-describe('starter template', () => {
-  const target = mkdtempSync(path.join(tmpdir(), 'qiforge-cli-starter-'));
+describe('basic template', () => {
+  const target = mkdtempSync(path.join(tmpdir(), 'qiforge-cli-basic-'));
 
   afterAll(() => {
     rmSync(target, { recursive: true, force: true });
   });
 
-  it('renders the full starter without errors', () => {
-    const sourceDir = path.resolve(__dirname, '..', 'templates', 'starter');
+  it('renders the full basic template without errors', () => {
+    const sourceDir = path.resolve(__dirname, '..', 'templates', 'basic');
     renderTemplate({
       sourceDir,
       targetDir: target,
