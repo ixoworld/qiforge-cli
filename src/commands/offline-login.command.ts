@@ -68,12 +68,19 @@ export class OfflineLoginCommand implements Command {
 
       // Login to Matrix
       const homeServerUrl = MatrixHomeServerUrl[network as NETWORK];
-      p.log.info('Logging into Matrix...');
-      const matrixLogin = await mxLoginRaw({
-        homeServerUrl,
-        username,
-        password: matrixPassword,
-      });
+      p.log.info(`Logging into Matrix as @${username}:${new URL(homeServerUrl).host}...`);
+      let matrixLogin: Awaited<ReturnType<typeof mxLoginRaw>>;
+      try {
+        matrixLogin = await mxLoginRaw({
+          homeServerUrl,
+          username,
+          password: matrixPassword,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        p.log.error(`Matrix login failed for @${username}:${new URL(homeServerUrl).host}: ${message}`);
+        throw err;
+      }
 
       // Resolve room ID from room alias
       const matrixApiClient = createMatrixApiClient({
