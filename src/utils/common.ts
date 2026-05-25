@@ -26,6 +26,18 @@ export const RELAYER_NODE_DID = {
   devnet: "did:ixo:entity:2f22535f8b179a51d77a0e302e68d35d",
 };
 
+/**
+ * The IXO Oracle Protocol entity DID, per network. New oracle entities are
+ * created as children of this protocol — picking the wrong network's DID at
+ * creation will cause indexing failures since the protocol entity is
+ * network-scoped.
+ */
+export const PARENT_PROTOCOL_DID: Record<NETWORK, string> = {
+  devnet: "did:ixo:entity:1a76366f16570483cea72b111b27fd78",
+  testnet: "did:ixo:entity:4fea95339b4cf738cbf0879b02d0da77",
+  mainnet: "did:ixo:entity:a4dee98213e19f15e02e59873a0d9548",
+};
+
 export const MatrixHomeServerUrl: Record<NETWORK, string> = {
   devnet: "https://devmx.ixo.earth",
   testnet: "https://testmx.ixo.earth",
