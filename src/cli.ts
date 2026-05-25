@@ -6,9 +6,10 @@ import { CreateComposioKeyCommand } from './commands/create-composio-key.command
 import { CreateEntityCommand } from './commands/create-entity-command';
 import { CreateUserCommand } from './commands/create-user-command';
 import { HelpCommand } from './commands/help.command';
-import { InitCommand } from './commands/init.command';
 import { LogoutCommand } from './commands/logout.commands';
+import { NewCommand } from './commands/new.command';
 import { OfflineLoginCommand } from './commands/offline-login.command';
+import { PluginNewCommand } from './commands/plugin-new.command';
 import { SetupEncryptionKeyCommand } from './commands/setup-encryption-key-command';
 import { SignXLoginCommand } from './commands/signX.commands';
 import { UpdateDomainCommand } from './commands/update-domain-command';
@@ -29,7 +30,8 @@ class CLIManager {
   }
 
   private registerCommands(): void {
-    this.registry.register(new InitCommand(this.config, this.wallet));
+    this.registry.register(new NewCommand(this.config, this.wallet));
+    this.registry.register(new PluginNewCommand());
     this.registry.register(new CreateEntityCommand(this.wallet, this.config));
     this.registry.register(new UpdateEntityCommand(this.wallet, this.config));
     this.registry.register(new UpdateDomainCommand(this.wallet, this.config));
@@ -94,6 +96,9 @@ class CLIManager {
           const result = await loginCommand.execute();
           if (result.success) {
             log.success('Login successful');
+          } else {
+            log.error(`Login failed: ${result.error ?? 'unknown error'}`);
+            process.exit(1);
           }
           return;
         }
@@ -102,6 +107,9 @@ class CLIManager {
           const result = await offlineCommand.execute();
           if (result.success) {
             log.success('Login successful');
+          } else {
+            log.error(`Login failed: ${result.error ?? 'unknown error'}`);
+            process.exit(1);
           }
           return;
         }
@@ -149,9 +157,14 @@ class CLIManager {
   }
 
   private async interactiveMode(): Promise<void> {
-    intro('IXO CLI');
+    intro('qiforge-cli');
 
     await this.handleAuthentication();
+
+    if (!this.wallet.checkWalletExists()) {
+      log.error('No wallet loaded after authentication. Cannot continue.');
+      process.exit(1);
+    }
 
     if (this.wallet.wallet?.mode !== 'offline') {
       log.warn('Keep your IXO Mobile App open while running the CLI; So u do not interrupt the signX session');
@@ -161,7 +174,7 @@ class CLIManager {
     const action = await select({
       message: `Welcome ${this.wallet.name}, what would you like to do?`,
       options: [...this.registry.getCommandOptions()],
-      initialValue: 'init',
+      initialValue: 'new',
     });
 
     if (isCancel(action)) {
@@ -180,11 +193,19 @@ class CLIManager {
       return;
     }
 
-    // Handle special flags
-    if (command === '--init') {
+    // `qiforge new <name>` — scaffold a new oracle
+    if (command === '--new' || command === 'new') {
       await this.handleAuthentication();
       this.registerCommands();
-      await this.executeCommand('init');
+      await this.executeCommand('new');
+      return;
+    }
+
+    // `qiforge plugin new <name>` — scaffold a plugin in the current project.
+    // No authentication required: this is a pure filesystem operation.
+    if (command === 'plugin' && args[1] === 'new') {
+      this.registerCommands();
+      await this.executeCommand('plugin-new');
       return;
     }
 
@@ -228,7 +249,7 @@ class CLIManager {
       handleError(error);
     }
 
-    outro('Thanks for using IXO CLI!');
+    outro('Thanks for using qiforge-cli!');
     process.exit(0);
   }
 }

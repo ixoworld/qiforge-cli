@@ -1,0 +1,60 @@
+import 'dotenv/config';
+
+import { createOracleApp, EditorPlugin } from '@ixo/oracle-runtime';
+import { Logger } from '@nestjs/common';
+import * as sdk from 'matrix-js-sdk';
+import { config } from './config.js';
+
+/**
+ * Bundled plugins with no constructor args flow in automatically. Plugins that
+ * need live runtime objects (Matrix client, Redis) are instantiated here and
+ * passed in — the plugin loader dedupes by name so explicit instances override
+ * bundled defaults.
+ */
+async function bootstrap(): Promise<void> {
+  const matrixBaseUrl = process.env.MATRIX_BASE_URL;
+  const matrixUserId = process.env.MATRIX_ORACLE_ADMIN_USER_ID;
+  const matrixAccessToken = process.env.MATRIX_ORACLE_ADMIN_ACCESS_TOKEN;
+  if (!matrixBaseUrl || !matrixUserId || !matrixAccessToken) {
+    throw new Error(
+      'Matrix env vars missing — MATRIX_BASE_URL / MATRIX_ORACLE_ADMIN_USER_ID / MATRIX_ORACLE_ADMIN_ACCESS_TOKEN are required.',
+    );
+  }
+
+  const matrixClient = sdk.createClient({
+    baseUrl: matrixBaseUrl,
+    userId: matrixUserId,
+    accessToken: matrixAccessToken,
+  });
+
+  const app = await createOracleApp({
+    config,
+    logger: Logger,
+    plugins: [new EditorPlugin({ matrixClient })],
+  });
+
+  app.onPluginStatusChange((event) => {
+    Logger.log(
+      `[plugin] ${event.plugin} ${event.from} → ${event.to}${event.reason ? ` (${event.reason})` : ''}`,
+    );
+  });
+  app.onError((err, source) => {
+    Logger.error(`[runtime] ${source}: ${err.message}`);
+  });
+
+  const status = app.plugins.status();
+  Logger.log(`[boot] loaded plugins: ${status.loaded.join(', ') || '(none)'}`);
+  if (status.excluded.length > 0) {
+    Logger.log(
+      '[boot] excluded plugins: ' +
+        status.excluded.map((e) => `${e.plugin} (${e.reason})`).join(', '),
+    );
+  }
+
+  await app.listen();
+}
+
+bootstrap().catch((err) => {
+  Logger.error('Oracle failed to start:', err);
+  process.exit(1);
+});

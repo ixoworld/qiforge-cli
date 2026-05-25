@@ -1,0 +1,53 @@
+# {{name}}
+
+{{description}}
+
+Built with [QiForge](https://github.com/ixoworld/qiforge) on top of `@ixo/oracle-runtime`.
+
+## Quickstart
+
+```bash
+pnpm install
+cp .env.example .env       # fill in MATRIX_*, ORACLE_ENTITY_DID, LLM keys
+pnpm dev                   # tsx watch src/main.ts
+```
+
+The oracle listens on `PORT` (default 3000).
+
+## Adding a plugin
+
+```bash
+qiforge-cli plugin new my-plugin
+```
+
+Scaffolds `src/plugins/my-plugin/` with a class skeleton + tests. Register the
+generated plugin in `src/main.ts`:
+
+```ts
+import { MyPluginPlugin } from './plugins/my-plugin/my-plugin.plugin.js';
+
+await createOracleApp({
+  config,
+  plugins: [new EditorPlugin({ matrixClient }), new MyPluginPlugin()],
+});
+```
+
+## Layout
+
+```
+src/
+├── main.ts       # bootstrap — createOracleApp + listen
+├── config.ts     # oracle identity + system prompt
+└── plugins/      # your custom plugins
+.env              # secrets — never commit
+```
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Hot-reload dev server (tsx watch). |
+| `pnpm build` | Compile TypeScript → `dist/`. |
+| `pnpm start` | Run the compiled build. |
+| `pnpm typecheck` | Type-check without emit. |
+| `pnpm test` | Run unit tests. |

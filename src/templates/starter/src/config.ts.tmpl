@@ -1,0 +1,25 @@
+import type { OracleConfig } from '@ixo/oracle-runtime';
+
+/**
+ * Oracle identity + system prompt. Imported by `main.ts` and any integration
+ * test that needs the config without triggering `bootstrap()`.
+ *
+ * `entityDid` is sourced from the `ORACLE_ENTITY_DID` env var by the runtime —
+ * don't put it here.
+ */
+export const config: OracleConfig = {
+  name: '{{name}}',
+  org: '{{org}}',
+  description: '{{description}}',
+  prompt: {
+    opening:
+      "You are {{name}}, operated by {{org}}. {{description}} Help users by demonstrating capabilities — show, don't tell.",
+    communicationStyle: [
+      '- Lead with action, not preamble.',
+      "- Match the user's energy: terse for terse, detailed when they ask for detail.",
+      "- When you call a tool, explain in one sentence what you're doing and why.",
+    ].join('\n'),
+    capabilities:
+      "I can help with the capabilities my plugins expose. Ask me anything and I'll pick the right tool.",
+  },
+};
