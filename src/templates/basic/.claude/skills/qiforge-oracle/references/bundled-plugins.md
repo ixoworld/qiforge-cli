@@ -57,7 +57,51 @@ await createOracleApp({
 
 This is the canonical pattern for plugins that need live runtime objects (Matrix client, Redis).
 
+## Adding global oracle knowledge (memory plugin)
+
+Global knowledge is content the oracle should know on every turn for every user. It is stored on the Memory Engine under the **oracle entity's DID**, not under any individual user.
+
+**Preconditions**
+
+- You must be `owner` or `controller` on the oracle's IXO entity (the entity `qiforge-cli create-entity` registered). The Memory Engine rejects writes from any other DID.
+
+**Plugin configuration** — the default selection does NOT include `memory-engine__add_oracle_knowledge`. Enable it explicitly:
+
+```ts
+import {
+  createOracleApp,
+  MemoryPlugin,
+  DEFAULT_MEMORY_TOOLS,
+  MEMORY_ADD_ORACLE_KNOWLEDGE_MCP_NAME,
+} from '@ixo/oracle-runtime';
+
+await createOracleApp({
+  config,
+  plugins: [
+    new MemoryPlugin({
+      selectedTools: [
+        ...DEFAULT_MEMORY_TOOLS,
+        MEMORY_ADD_ORACLE_KNOWLEDGE_MCP_NAME,
+      ],
+    }),
+  ],
+});
+```
+
+**Workflow**
+
+1. Boot the oracle (`pnpm dev`).
+2. Open the Portal for the matching network and connect:
+   - devnet: `https://dev.portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+   - testnet: `https://test.portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+   - mainnet: `https://portal.qi.space/domain/<ORACLE_ENTITY_DID>/connect`
+3. Sign in as the entity owner/controller and click the highlighted "Connect" action — the Portal opens a chat session bound to the oracle.
+4. Drag and drop files (PDFs, markdown, text), paste links, or paste raw text. Then say "Save this into the global oracle knowledge."
+5. Wait ~5 minutes for indexing. After that, every user's session can recall it through `memory-engine__search_memory_engine`.
+
+**Warning** — `add_oracle_knowledge` writes are visible to every user that talks to this oracle. Treat it like a public knowledge base.
+
 ## Source of truth
 
 - https://docs.ixo.world/build-an-oracle/reference/bundled-plugins
-- https://docs.ixo.world/build-an-oracle/build/enable-bundled-plugins
+- https://docs.ixo.world/build-an-oracle/develop/enable-bundled-plugins

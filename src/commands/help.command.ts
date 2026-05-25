@@ -38,7 +38,6 @@ NEW COMMAND FLAGS (qiforge-cli new):
   --description <text>        One-line oracle description
   --org <name>                Organization name (default: IXO)
   --install                   Run pnpm install after scaffolding
-  --runtime-version <range>   Override the @ixo/oracle-runtime version pin
   --force                     Overwrite an existing non-empty target dir
 
 PLUGIN NEW COMMAND FLAGS (qiforge-cli plugin new \<name\>):

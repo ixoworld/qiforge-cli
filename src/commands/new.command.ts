@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import { spawn } from 'child_process';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'fs';
+import { existsSync, readdirSync, rmSync } from 'fs';
 import path from 'path';
 import { Command } from '.';
 import { CLIResult } from '../types';
@@ -215,6 +215,8 @@ export class NewCommand implements Command {
       this.config.addValue('projectPath', projectPath);
       this.config.addValue('projectName', projectName);
 
+      const runtimeVersion = await resolveRuntimeVersionRange();
+
       const renderSpinner = p.spinner();
       renderSpinner.start(`Scaffolding project files (template: ${template.name})…`);
       try {
@@ -230,7 +232,7 @@ export class NewCommand implements Command {
             org,
             description,
             network: 'devnet',
-            runtimeVersion: resolveRuntimeVersionRange(),
+            runtimeVersion,
           },
           overwrite: true,
         });
@@ -309,32 +311,33 @@ function isDirNonEmpty(dir: string): boolean {
   }
 }
 
-/**
- * Range the scaffolded starter pins `@ixo/oracle-runtime` to. Falls back to
- * a default that's bumped alongside CLI releases; can be overridden via
- * `--runtime-version`. The CLI's own package.json is also consulted when it
- * declares the runtime as a dep (CI may inject this at publish time).
- */
-const DEFAULT_RUNTIME_VERSION = '^0.0.1';
+const RUNTIME_PACKAGE = '@ixo/oracle-runtime';
+const REGISTRY_FETCH_TIMEOUT_MS = 5000;
 
-function resolveRuntimeVersionRange(): string {
-  const flags = parseCliFlags();
-  if (flags['runtime-version']) return flags['runtime-version'];
+/**
+ * Resolves the version range scaffolded oracles pin `@ixo/oracle-runtime` to.
+ * Queries the npm registry for the current `latest` dist-tag and pins to
+ * `^<version>`. Falls back to the literal `"latest"` tag if the registry is
+ * unreachable so install still works (resolved at install time).
+ */
+async function resolveRuntimeVersionRange(): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REGISTRY_FETCH_TIMEOUT_MS);
   try {
-    const candidates = [
-      path.resolve(__dirname, '..', 'package.json'),
-      path.resolve(__dirname, '..', '..', 'package.json'),
-    ];
-    for (const candidate of candidates) {
-      if (!existsSync(candidate)) continue;
-      const pkg = JSON.parse(readFileSync(candidate, 'utf8')) as {
-        dependencies?: Record<string, string>;
-      };
-      const declared = pkg.dependencies?.['@ixo/oracle-runtime'];
-      if (declared) return declared;
-    }
-  } catch {
-    // fall through
+    const res = await fetch(
+      `https://registry.npmjs.org/${RUNTIME_PACKAGE}/latest`,
+      { signal: controller.signal },
+    );
+    if (!res.ok) throw new Error(`registry responded with ${res.status}`);
+    const body = (await res.json()) as { version?: string };
+    if (body.version) return `^${body.version}`;
+    throw new Error('registry response missing version field');
+  } catch (err) {
+    p.log.warn(
+      `Could not resolve ${RUNTIME_PACKAGE} from npm registry (${(err as Error).message}); pinning to "latest".`,
+    );
+    return 'latest';
+  } finally {
+    clearTimeout(timer);
   }
-  return DEFAULT_RUNTIME_VERSION;
 }
