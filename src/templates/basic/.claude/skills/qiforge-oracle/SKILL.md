@@ -40,6 +40,8 @@ The references below carry the dense, scenario-specific guidance. Load only what
 | Wiring env vars (plugin-specific or runtime) | `references/env-vars.md` |
 | What the 14 bundled plugins do, when each loads, their env requirements | `references/bundled-plugins.md` |
 | Writing tests via `createTestRuntime` | `references/testing.md` |
+| Changing the oracle identity, system prompt, or config.ts | `references/oracle-config.md` |
+| Understanding how the runtime assembles the final system prompt | `references/prompt-anatomy.md` |
 
 ## Hard rules — don't break these
 

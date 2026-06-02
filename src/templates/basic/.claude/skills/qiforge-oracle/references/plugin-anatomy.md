@@ -79,12 +79,14 @@ interface PluginSubAgent {
   description: string;
   systemPrompt: string | ((ctx: PluginContext) => string);
   tools: PluginTool[] | ((ctx: PluginContext) => PluginTool[]);
-  model?: ModelRole;                                 // default 'subagent'
+  model?: ModelRole;                                 // default 'subagent' — see note below
   middlewares?: AgentMiddleware[];
   forwardTools?: boolean | string[];                 // forward calls to main message stream
   onComplete?: (result: string, ctx: RuntimeContext) => Promise<void>;
 }
 ```
+
+**`ModelRole` values:** `'main'` (the primary conversational model), `'subagent'` (default for sub-agents — typically a faster/cheaper model), `'utility'` (for lightweight classification or extraction tasks), or any custom string key registered in the runtime's model registry. Use `'subagent'` unless you have a specific reason to select a different tier.
 
 ## Tool authoring helper
 
@@ -109,7 +111,68 @@ tool(
 ## The two contexts
 
 - **`PluginContext`** — built once at boot. Carries `config` (validated env), `logger`, ambient services, and identity. Pass it through `getTools` / `getSubAgents` / `getMiddlewares` / `getNestModules` / `getSharedState`.
-- **`RuntimeContext`** — built per request. Adds `user`, `session`, `state` (graph state at this point), `emit` (events), and the current `runConfig`. Pass it through `getRequestTools` / `getRequestSubAgents` and into every tool handler.
+- **`RuntimeContext`** — built per request. Full shape:
+
+```ts
+interface RuntimeContext {
+  user: {
+    did: string;
+    matrixUserId: string;
+    ucanDelegation: UcanDelegation;
+    timezone?: string;
+    currentTime?: string;
+  };
+  session: {
+    id: string;
+    client: 'portal' | 'matrix' | 'slack';
+    wsId?: string;
+    requestId: string;
+    roomId?: string;
+  };
+  history: {
+    messages: readonly BaseMessage[];
+    recent(n: number): BaseMessage[];
+    userContext: UserContextData;   // the 6 pre-fetched memory slots
+    state: ReadonlyState;
+  };
+  config: TConfig;                  // validated plugin config (from configSchema)
+  availablePlugins: ReadonlySet<string>;
+  loadedPlugins: ReadonlySet<string>;
+  secrets: {
+    getIndex(): Promise<SecretIndex>;
+    getValues(keys: string[]): Promise<Record<string, string>>;
+  };
+  matrix: {
+    postToRoom(roomId: string, content: unknown): Promise<string>;
+    getRoomState(roomId: string): Promise<RoomStateSnapshot>;
+    getEventById(roomId: string, eventId: string): Promise<MatrixEvent>;
+  };
+  ucan: {
+    requireCapability(resource: string, action: string): void;
+    hasCapability(resource: string, action: string): boolean;
+    mintInvocation(target: string, opts?: unknown): Promise<string>;
+    resolveServiceDid(url: string): Promise<string | null>;
+  };
+  llm: {
+    get(role: ModelRole, params?: unknown): BaseChatModel;
+  };
+  emit: {
+    toolCall(...args: unknown[]): void;
+    actionCall(...args: unknown[]): void;
+    renderComponent(...args: unknown[]): void;
+    reasoning(...args: unknown[]): void;
+    browserToolCall(...args: unknown[]): void;
+    router(...args: unknown[]): void;
+    messageCacheInvalidation(...args: unknown[]): void;
+  };
+  logger: Logger;
+  abortSignal: AbortSignal;
+  shared: SharedAccessors;
+  toolCallId?: string;
+}
+```
+
+Pass `RuntimeContext` through `getRequestTools` / `getRequestSubAgents` and into every tool handler.
 
 ## Source of truth
 

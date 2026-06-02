@@ -19,7 +19,23 @@ The runtime ships 14 plugins out of the box. They all resolve at boot — toggli
 | `tasks` | stub | auto-detect | `REDIS_URL` | Background queues (BullMQ) — currently stub. |
 | `credits` | silent | on unless `DISABLE_CREDITS=true` | — | Per-user credit accounting. |
 | `calls` | stub | on | — | Voice/calls — currently stub. |
-| `user-preferences` | always | on | — | Per-user preference store. |
+| `user-preferences` | always | on | — | Per-user preference store. Tool: `set_user_preferences`. Fields: `agentName` (overrides `config.name` in the prompt), `language`, `tone`, `formality`, `customInstructions`. |
+
+## What the runtime injects automatically
+
+These three things are handled entirely by the runtime. You do not need to write prompts, tools, or config to enable them — they are present on every turn for every user.
+
+**Memory pre-fetch**
+
+`UserContextFetcher` loads all 6 context slots (`identity`, `work`, `goals`, `interests`, `relationships`, `recent`) into the system prompt **before the agent is compiled for the turn**, using a 5-minute session cache. Each slot can contain `entities` (name, labels, summary), `facts` (fact text), `episodes` (content + date), and `communities` (name, summary). Empty slots are silently dropped — the `## What you know about the user` block only appears when at least one slot has content. The practical consequence: **you do not need to instruct the agent to recall memory** — it is already there on turn 1. The `memory` plugin tools are for writing and searching memory, not for reading what is already injected.
+
+**User preferences**
+
+Preferences are hydrated from the database per room before the agent starts. The `user-preferences` plugin (visibility: `always`) exposes the `set_user_preferences` tool so users can configure their preferences mid-conversation. A user-set `agentName` silently overrides `config.name` in the rendered prompt — the agent will introduce itself by the user's chosen name without any extra code.
+
+**Current time**
+
+Always injected as `**Current time:** {currentTime} ({timezone})` derived from the authenticated user's UCAN delegation and client headers. Time-sensitive reasoning requires no special tool call.
 
 ## Toggling
 
