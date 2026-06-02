@@ -13,6 +13,57 @@ import { getTemplatesDir } from '../utils/templates-dir';
 import { Wallet } from '../utils/wallet';
 import { CreateEntityCommand } from './create-entity-command';
 
+interface PluginEntry {
+  value: string;
+  label: string;
+  hint: string;
+  envVars: string[];
+}
+
+const PLUGIN_CATALOG: PluginEntry[] = [
+  {
+    value: 'memory',
+    label: 'Memory',
+    hint: 'Long-term memory — remembers context across sessions',
+    envVars: ['MEMORY_ENGINE_URL', 'MEMORY_MCP_URL'],
+  },
+  { value: 'sandbox', label: 'Sandbox', hint: 'Sandboxed code execution and file tools', envVars: ['SANDBOX_MCP_URL'] },
+  {
+    value: 'skills',
+    label: 'Skills',
+    hint: 'Discover and invoke AI agent skills from the skills registry',
+    envVars: ['SKILLS_CAPSULES_BASE_URL'],
+  },
+  {
+    value: 'composio',
+    label: 'Composio',
+    hint: '250+ integrations — Slack, GitHub, Gmail, Notion, and more',
+    envVars: ['COMPOSIO_API_KEY'],
+  },
+  {
+    value: 'firecrawl',
+    label: 'Firecrawl',
+    hint: 'Web scraping, crawling, and real-time search',
+    envVars: ['FIRECRAWL_API_KEY'],
+  },
+  {
+    value: 'domain-indexer',
+    label: 'Domain Indexer',
+    hint: 'Index and search IXO entities on-chain',
+    envVars: ['DOMAIN_INDEXER_URL'],
+  },
+  {
+    value: 'user-preferences',
+    label: 'User Preferences',
+    hint: 'Persist per-user settings across sessions',
+    envVars: [],
+  },
+  { value: 'portal', label: 'Portal', hint: 'IXO portal integration for claims and projects', envVars: [] },
+  { value: 'credits', label: 'Credits', hint: 'Token-based usage credits and rate limiting', envVars: ['REDIS_URL'] },
+];
+
+const BASE_BUNDLE = ['memory', 'sandbox'];
+
 /**
  * `qiforge new <name>` — scaffolds a standalone oracle from bundled code
  * templates (no git clone). Optionally runs `pnpm install` and provisions
@@ -22,10 +73,7 @@ export class NewCommand implements Command {
   name = 'new';
   description = 'Scaffold a new oracle from a code template';
 
-  constructor(
-    private readonly config: RuntimeConfig,
-    private readonly wallet: Wallet,
-  ) {}
+  constructor(private readonly config: RuntimeConfig, private readonly wallet: Wallet) {}
 
   private async getProjectInput(): Promise<{ projectPath: string; projectName: string }> {
     const input = await p.text({
@@ -114,6 +162,24 @@ export class NewCommand implements Command {
     return Boolean(answer);
   }
 
+  private async pickPlugins(): Promise<string[]> {
+    const selection = await p.multiselect({
+      message: 'Select plugins to enable (memory + sandbox are included by default, Space to toggle):',
+      options: PLUGIN_CATALOG.map((entry) => ({
+        value: entry.value,
+        label: entry.label,
+        hint: entry.hint,
+      })),
+      initialValues: BASE_BUNDLE,
+      required: false,
+    });
+    if (p.isCancel(selection)) {
+      p.cancel('Operation cancelled.');
+      process.exit(0);
+    }
+    return selection as string[];
+  }
+
   /**
    * Prompt for a template when more than one is available. Single-template
    * catalogs short-circuit silently so the basic-only setup is one prompt
@@ -167,25 +233,26 @@ export class NewCommand implements Command {
       let org: string;
       let install: boolean;
       let template: TemplateEntry;
+      let selectedPlugins: string[];
 
       if (noInteractive && flags.name) {
         projectName = flags.name;
-        projectPath = flags.path
-          ? path.resolve(flags.path)
-          : path.resolve(process.cwd(), projectName);
+        projectPath = flags.path ? path.resolve(flags.path) : path.resolve(process.cwd(), projectName);
         description = flags.description ?? 'An oracle built with QiForge.';
         org = flags.org ?? 'IXO';
         install = flags.install === 'true';
         template = findTemplate(catalog, flags.template ?? 'basic');
+        selectedPlugins = flags.plugins
+          ? flags.plugins
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : BASE_BUNDLE;
 
         if (!isValidProjectName(projectName)) {
           return { success: false, error: `Invalid project name: ${projectName}` };
         }
-        if (
-          existsSync(projectPath) &&
-          isDirNonEmpty(projectPath) &&
-          flags.force !== 'true'
-        ) {
+        if (existsSync(projectPath) && isDirNonEmpty(projectPath) && flags.force !== 'true') {
           return {
             success: false,
             error: `Directory "${projectPath}" already exists. Use --force to overwrite.`,
@@ -203,17 +270,23 @@ export class NewCommand implements Command {
 
         // --template flag wins; otherwise prompt (and skip the prompt when
         // the catalog has only one entry).
-        template = flags.template
-          ? findTemplate(catalog, flags.template)
-          : await this.pickTemplate(catalog);
+        template = flags.template ? findTemplate(catalog, flags.template) : await this.pickTemplate(catalog);
 
         description = await this.getDescription();
         org = await this.getOrg();
         install = await this.confirmInstall();
+        selectedPlugins = await this.pickPlugins();
       }
 
       this.config.addValue('projectPath', projectPath);
       this.config.addValue('projectName', projectName);
+      // Pre-fill entity values from already-collected answers so create-entity
+      // doesn't re-prompt for the same information.
+      this.config.addValue('oracleName', projectName);
+      this.config.addValue('prefillDescription', description);
+      this.config.addValue('prefillOrgName', org);
+      this.config.addValue('selectedPlugins', selectedPlugins.join(','));
+      this.config.addValue('newCommandContext', 'true');
 
       const runtimeVersion = await resolveRuntimeVersionRange();
 
@@ -246,9 +319,7 @@ export class NewCommand implements Command {
       const entityCommand = new CreateEntityCommand(this.wallet, this.config);
       const entityResult = await entityCommand.execute();
       if (!entityResult.success) {
-        p.log.error(
-          `Failed to create oracle entity: ${entityResult.error ?? 'unknown error'}`,
-        );
+        p.log.error(`Failed to create oracle entity: ${entityResult.error ?? 'unknown error'}`);
         throw new Error(entityResult.error ?? 'Entity creation failed');
       }
       p.log.success('Oracle entity + Matrix account created');
@@ -263,19 +334,30 @@ export class NewCommand implements Command {
           installSpinner.stop('Dependencies installed');
         } catch (err) {
           installSpinner.stop('pnpm install failed (continuing)');
-          p.log.warn(
-            `Install failed: ${(err as Error).message}. Run pnpm install manually.`,
-          );
+          p.log.warn(`Install failed: ${(err as Error).message}. Run pnpm install manually.`);
         }
       }
 
       const relPath = path.relative(process.cwd(), projectPath) || projectName;
+
+      const pluginEnvHints = selectedPlugins
+        .flatMap((name) => PLUGIN_CATALOG.find((entry) => entry.value === name)?.envVars ?? [])
+        .filter((v, i, arr) => arr.indexOf(v) === i); // dedupe (e.g. REDIS_URL shared)
+
+      const pluginHintBlock =
+        pluginEnvHints.length > 0
+          ? `\n📦 Fill in these env vars in .env for your selected plugins:\n` +
+            pluginEnvHints.map((v) => `   ${v}=`).join('\n') +
+            '\n'
+          : '';
+
       p.log.success(
-        `\n✅ Oracle "${projectName}" scaffolded at ${projectPath}\n\n` +
-          `🚀 Next steps:\n` +
+        `\n✅ Oracle "${projectName}" scaffolded at ${projectPath}\n` +
+          pluginHintBlock +
+          `\n🚀 Next steps:\n` +
           `   cd ${relPath}\n` +
           (install ? '' : '   pnpm install\n') +
-          `   pnpm dev`,
+          `   pnpm dev`
       );
 
       return {
@@ -324,17 +406,14 @@ async function resolveRuntimeVersionRange(): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REGISTRY_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `https://registry.npmjs.org/${RUNTIME_PACKAGE}/latest`,
-      { signal: controller.signal },
-    );
+    const res = await fetch(`https://registry.npmjs.org/${RUNTIME_PACKAGE}/latest`, { signal: controller.signal });
     if (!res.ok) throw new Error(`registry responded with ${res.status}`);
     const body = (await res.json()) as { version?: string };
     if (body.version) return `^${body.version}`;
     throw new Error('registry response missing version field');
   } catch (err) {
     p.log.warn(
-      `Could not resolve ${RUNTIME_PACKAGE} from npm registry (${(err as Error).message}); pinning to "latest".`,
+      `Could not resolve ${RUNTIME_PACKAGE} from npm registry (${(err as Error).message}); pinning to "latest".`
     );
     return 'latest';
   } finally {

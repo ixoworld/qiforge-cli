@@ -12,6 +12,12 @@ interface Config {
   registerUserResult: SimplifiedRegistrationResult & {
     matrixDeviceName: string;
   };
+  // Set by `new` command so `create-entity` can skip re-prompting
+  oracleName: string;
+  prefillDescription: string;
+  prefillOrgName: string;
+  selectedPlugins: string;
+  newCommandContext: string;
 }
 
 export class RuntimeConfig {

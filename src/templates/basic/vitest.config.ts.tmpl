@@ -4,5 +4,13 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
+    server: {
+      deps: {
+        // @veramo/* uses the old `assert { type: 'json' }` syntax that Node 22+
+        // dropped. Inlining these packages routes them through Vite/esbuild,
+        // which silently rewrites the syntax, so tests run on Node 22+/24+.
+        inline: [/@veramo\//, /@ixo\/oracles-chain-client/],
+      },
+    },
   },
 });

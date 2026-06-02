@@ -108,210 +108,251 @@ export class CreateEntityCommand implements Command {
         }
       }
     } else {
-      // Interactive mode (original behavior)
-      const results = await p.group(
-        {
-          matrixHomeServerUrl: () =>
-            p.text({
-              message: 'Matrix homeserver URL for the oracle:',
-              initialValue: defaultMatrixUrl,
-              defaultValue: defaultMatrixUrl,
-              validate(value) {
-                return checkRequiredMatrixUrl(value);
-              },
-            }),
-          oracleName: () =>
-            p.text({
-              message: 'What is the name of the oracle?',
-              initialValue: 'My oracle',
-              validate(value) {
-                return checkRequiredString(value, 'Oracle name is required');
-              },
-            }),
-          oraclePrice: () =>
-            p.text({
-              message: 'What is the price of the oracle in IXO CREDITS?',
-              initialValue: '100',
-              validate(value) {
-                return checkRequiredNumber(parseInt(value ?? ''), 'Oracle price is required and must be a number');
-              },
-            }),
-          profile: () =>
-            p.group({
-              orgName: () =>
-                p.text({
-                  message: 'What is the name of the organization?',
-                  initialValue: 'IXO',
-                  validate(value) {
-                    return checkRequiredString(value, 'Organization name is required');
-                  },
-                }),
-              name: () =>
-                p.text({
-                  message: 'What is the name of the profile?',
-                  initialValue: 'My oracle',
-                  validate(value) {
-                    return checkRequiredString(value, 'Profile name is required');
-                  },
-                }),
-              logo: ({ results }) =>
-                p.text({
-                  message: 'What is the logo of the profile?',
-                  initialValue: `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`,
-                  defaultValue: `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`,
-                  validate(value) {
-                    if (!value) return `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`;
-                    return checkRequiredURL(value, 'Logo is required or a valid URL');
-                  },
-                }),
-              coverImage: ({ results }) =>
-                p.text({
-                  message: 'What is the cover image of the profile?',
-                  initialValue: results.logo as string,
-                  defaultValue: results.logo as string,
-                  validate(value) {
-                    if (!value) return results.logo as string;
-                    return checkRequiredURL(value, 'Cover image is required or a valid URL');
-                  },
-                }),
-              location: () =>
-                p.text({
-                  message: 'What is the location of your domain?',
-                  initialValue: 'New York, NY',
-                  validate(value) {
-                    return checkRequiredString(value, 'Location is required');
-                  },
-                }),
-              description: () =>
-                p.text({
-                  message: 'What is the description of the entity (profile)?',
-                  initialValue: 'We are a company that helps you with daily tasks',
-                  validate(value) {
-                    return checkRequiredString(value, 'Description is required');
-                  },
-                }),
-              url: () =>
-                p.text({
-                  message: 'What is the website URL of the oracle? (optional, press Enter to skip)',
-                  placeholder: 'https://your-oracle-website.com',
-                }),
-            }),
-          parentProtocol: () =>
-            p.select({
-              message: 'What is the parent protocol of the entity?',
-              options: [
-                {
-                  value: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
-                  label: `IXO Oracle Protocol (${currentNetwork ?? 'devnet'})`,
-                  hint: 'default protocol for the selected network',
-                },
-              ],
-              initialValue: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
-            }),
-          apiUrl: () =>
-            p.text({
-              message: 'What is the API URL of the oracle?',
-              initialValue: 'http://localhost:4000',
-              validate(value) {
-                return checkRequiredURL(value, 'API URL is required or a valid URL');
-              },
-            }),
-          relayerNodeDid: () => {
-            const defaultRelayer = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
-            return p.text({
-              message: 'Relayer node DID (optional, press Enter for default):',
-              initialValue: defaultRelayer,
-              defaultValue: defaultRelayer,
-            });
-          },
-        },
-        {
-          onCancel: () => {
-            p.cancel('Operation cancelled.');
-            process.exit(0);
-          },
-        }
-      );
+      const prefilledOracleName = this.config.getValue('oracleName') as string | undefined;
+      const prefilledDescription = this.config.getValue('prefillDescription') as string | undefined;
+      const prefilledOrgName = this.config.getValue('prefillOrgName') as string | undefined;
+      const isNewContext = this.config.getValue('newCommandContext') === 'true';
 
-      oracleName = results.oracleName;
-      oraclePrice = results.oraclePrice;
-      orgName = results.profile.orgName;
-      profileName = results.profile.name;
-      logo = results.profile.logo as string;
-      coverImage = results.profile.coverImage as string;
-      location = results.profile.location;
-      description = results.profile.description;
-      website = results.profile.url as string | undefined;
-      parentProtocol = results.parentProtocol;
-      apiUrl = results.apiUrl;
-      matrixHomeServerUrl = results.matrixHomeServerUrl;
-      relayerNodeDid = results.relayerNodeDid;
-
-      // A5: Interactive prompts for extended config fields
-      const modelChoice = await p.select({
-        message: 'Select the default LLM model (press Enter for default):',
-        options: [
-          { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', hint: 'default' },
-          { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
-          { value: 'openai/gpt-4o', label: 'GPT-4o' },
-          { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-          { value: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick' },
-          { value: '__custom__', label: 'Custom model...' },
-        ],
-        initialValue: 'moonshotai/kimi-k2.5',
-      });
-
-      if (p.isCancel(modelChoice)) {
-        p.cancel('Operation cancelled.');
-        process.exit(0);
-      }
-
-      if (modelChoice === '__custom__') {
-        const customModel = await p.text({
-          message: 'Enter the custom model identifier:',
-          placeholder: 'provider/model-name',
+      if (isNewContext) {
+        // Fast path called from `qiforge new`: oracle name, description, and org
+        // were already collected — only ask for price; default everything else.
+        // All defaults are editable in oracle.config.json after scaffolding.
+        const priceResult = await p.text({
+          message: 'What is the price of the oracle in IXO CREDITS?',
+          initialValue: '100',
           validate(value) {
-            return checkRequiredString(value, 'Model identifier is required');
+            return checkRequiredNumber(parseInt(value ?? ''), 'Oracle price is required and must be a number');
           },
         });
-        if (p.isCancel(customModel)) {
+        if (p.isCancel(priceResult)) {
           p.cancel('Operation cancelled.');
           process.exit(0);
         }
-        model = customModel;
+        oraclePrice = priceResult as string;
+
+        oracleName = prefilledOracleName ?? 'My Oracle';
+        orgName = prefilledOrgName ?? 'IXO';
+        profileName = oracleName;
+        logo = `https://api.dicebear.com/8.x/bottts/svg?seed=${oracleName}`;
+        coverImage = logo;
+        location = 'Not specified';
+        description = prefilledDescription ?? '';
+        website = undefined;
+        parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
+        apiUrl = 'http://localhost:4000';
+        matrixHomeServerUrl = defaultMatrixUrl;
+        relayerNodeDid = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
+        model = 'moonshotai/kimi-k2.5';
+
+        const selectedPluginsStr = this.config.getValue('selectedPlugins') as string | undefined;
+        if (selectedPluginsStr) {
+          skills = selectedPluginsStr.split(',').filter(Boolean);
+        }
       } else {
-        model = modelChoice;
-      }
+        // Standalone `qiforge create-entity` — full interactive prompt set.
+        const results = await p.group(
+          {
+            matrixHomeServerUrl: () =>
+              p.text({
+                message: 'Matrix homeserver URL for the oracle:',
+                initialValue: defaultMatrixUrl,
+                defaultValue: defaultMatrixUrl,
+                validate(value) {
+                  return checkRequiredMatrixUrl(value);
+                },
+              }),
+            oracleName: () =>
+              p.text({
+                message: 'What is the name of the oracle?',
+                initialValue: prefilledOracleName ?? 'My oracle',
+                validate(value) {
+                  return checkRequiredString(value, 'Oracle name is required');
+                },
+              }),
+            oraclePrice: () =>
+              p.text({
+                message: 'What is the price of the oracle in IXO CREDITS?',
+                initialValue: '100',
+                validate(value) {
+                  return checkRequiredNumber(parseInt(value ?? ''), 'Oracle price is required and must be a number');
+                },
+              }),
+            profile: () =>
+              p.group({
+                orgName: () =>
+                  p.text({
+                    message: 'What is the name of the organization?',
+                    initialValue: prefilledOrgName ?? 'IXO',
+                    validate(value) {
+                      return checkRequiredString(value, 'Organization name is required');
+                    },
+                  }),
+                name: () =>
+                  p.text({
+                    message: 'What is the name of the profile?',
+                    initialValue: 'My oracle',
+                    validate(value) {
+                      return checkRequiredString(value, 'Profile name is required');
+                    },
+                  }),
+                logo: ({ results }) =>
+                  p.text({
+                    message: 'What is the logo of the profile?',
+                    initialValue: `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`,
+                    defaultValue: `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`,
+                    validate(value) {
+                      if (!value) return `https://api.dicebear.com/8.x/bottts/svg?seed=${results?.name ?? 'IXO'}`;
+                      return checkRequiredURL(value, 'Logo is required or a valid URL');
+                    },
+                  }),
+                coverImage: ({ results }) =>
+                  p.text({
+                    message: 'What is the cover image of the profile?',
+                    initialValue: results.logo as string,
+                    defaultValue: results.logo as string,
+                    validate(value) {
+                      if (!value) return results.logo as string;
+                      return checkRequiredURL(value, 'Cover image is required or a valid URL');
+                    },
+                  }),
+                location: () =>
+                  p.text({
+                    message: 'What is the location of your domain?',
+                    initialValue: 'New York, NY',
+                    validate(value) {
+                      return checkRequiredString(value, 'Location is required');
+                    },
+                  }),
+                description: () =>
+                  p.text({
+                    message: 'What is the description of the entity (profile)?',
+                    initialValue: prefilledDescription ?? 'We are a company that helps you with daily tasks',
+                    validate(value) {
+                      return checkRequiredString(value, 'Description is required');
+                    },
+                  }),
+                url: () =>
+                  p.text({
+                    message: 'What is the website URL of the oracle? (optional, press Enter to skip)',
+                    placeholder: 'https://your-oracle-website.com',
+                  }),
+              }),
+            parentProtocol: () =>
+              p.select({
+                message: 'What is the parent protocol of the entity?',
+                options: [
+                  {
+                    value: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
+                    label: `IXO Oracle Protocol (${currentNetwork ?? 'devnet'})`,
+                    hint: 'default protocol for the selected network',
+                  },
+                ],
+                initialValue: PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'],
+              }),
+            apiUrl: () =>
+              p.text({
+                message: 'What is the API URL of the oracle?',
+                initialValue: 'http://localhost:4000',
+                validate(value) {
+                  return checkRequiredURL(value, 'API URL is required or a valid URL');
+                },
+              }),
+            relayerNodeDid: () => {
+              const defaultRelayer = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
+              return p.text({
+                message: 'Relayer node DID (optional, press Enter for default):',
+                initialValue: defaultRelayer,
+                defaultValue: defaultRelayer,
+              });
+            },
+          },
+          {
+            onCancel: () => {
+              p.cancel('Operation cancelled.');
+              process.exit(0);
+            },
+          }
+        );
 
-      const promptOpeningResult = await p.text({
-        message: 'Opening prompt for the oracle (optional, press Enter to skip):',
-        placeholder: 'e.g. Welcome! I can help you with...',
-      });
-      if (p.isCancel(promptOpeningResult)) {
-        p.cancel('Operation cancelled.');
-        process.exit(0);
-      }
-      promptOpening = promptOpeningResult || undefined;
+        oracleName = results.oracleName;
+        oraclePrice = results.oraclePrice;
+        orgName = results.profile.orgName;
+        profileName = results.profile.name;
+        logo = results.profile.logo as string;
+        coverImage = results.profile.coverImage as string;
+        location = results.profile.location;
+        description = results.profile.description;
+        website = results.profile.url as string | undefined;
+        parentProtocol = results.parentProtocol;
+        apiUrl = results.apiUrl;
+        matrixHomeServerUrl = results.matrixHomeServerUrl;
+        relayerNodeDid = results.relayerNodeDid;
 
-      const promptStyleResult = await p.text({
-        message: 'Communication style (optional, press Enter to skip):',
-        placeholder: 'e.g. Friendly and concise',
-      });
-      if (p.isCancel(promptStyleResult)) {
-        p.cancel('Operation cancelled.');
-        process.exit(0);
-      }
-      promptStyle = promptStyleResult || undefined;
+        const modelChoice = await p.select({
+          message: 'Select the default LLM model (press Enter for default):',
+          options: [
+            { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', hint: 'default' },
+            { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'openai/gpt-4o', label: 'GPT-4o' },
+            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+            { value: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick' },
+            { value: '__custom__', label: 'Custom model...' },
+          ],
+          initialValue: 'moonshotai/kimi-k2.5',
+        });
 
-      const promptCapabilitiesResult = await p.text({
-        message: 'Capabilities description (optional, press Enter to skip):',
-        placeholder: 'e.g. I can search the web, manage tasks, and answer questions',
-      });
-      if (p.isCancel(promptCapabilitiesResult)) {
-        p.cancel('Operation cancelled.');
-        process.exit(0);
+        if (p.isCancel(modelChoice)) {
+          p.cancel('Operation cancelled.');
+          process.exit(0);
+        }
+
+        if (modelChoice === '__custom__') {
+          const customModel = await p.text({
+            message: 'Enter the custom model identifier:',
+            placeholder: 'provider/model-name',
+            validate(value) {
+              return checkRequiredString(value, 'Model identifier is required');
+            },
+          });
+          if (p.isCancel(customModel)) {
+            p.cancel('Operation cancelled.');
+            process.exit(0);
+          }
+          model = customModel;
+        } else {
+          model = modelChoice;
+        }
+
+        const promptOpeningResult = await p.text({
+          message: 'Opening prompt for the oracle (optional, press Enter to skip):',
+          placeholder: 'e.g. Welcome! I can help you with...',
+        });
+        if (p.isCancel(promptOpeningResult)) {
+          p.cancel('Operation cancelled.');
+          process.exit(0);
+        }
+        promptOpening = promptOpeningResult || undefined;
+
+        const promptStyleResult = await p.text({
+          message: 'Communication style (optional, press Enter to skip):',
+          placeholder: 'e.g. Friendly and concise',
+        });
+        if (p.isCancel(promptStyleResult)) {
+          p.cancel('Operation cancelled.');
+          process.exit(0);
+        }
+        promptStyle = promptStyleResult || undefined;
+
+        const promptCapabilitiesResult = await p.text({
+          message: 'Capabilities description (optional, press Enter to skip):',
+          placeholder: 'e.g. I can search the web, manage tasks, and answer questions',
+        });
+        if (p.isCancel(promptCapabilitiesResult)) {
+          p.cancel('Operation cancelled.');
+          process.exit(0);
+        }
+        promptCapabilities = promptCapabilitiesResult || undefined;
       }
-      promptCapabilities = promptCapabilitiesResult || undefined;
     }
 
     // Resolve PIN: flag or let CreateEntity prompt interactively
