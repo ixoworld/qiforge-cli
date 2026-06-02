@@ -4,6 +4,16 @@
 
 Built with [QiForge](https://github.com/ixoworld/qiforge) on top of `@ixo/oracle-runtime`.
 
+## Requirements
+
+- Node.js >= 22 (Node 24 supported)
+- pnpm >= 10
+
+> **Node 24 note:** the `pnpm.overrides` in `package.json` pins
+> `@digitalbazaar/http-client` to v4 to avoid a startup crash caused by
+> `esm@3` (a transitive dependency of `@veramo/credential-ld`) being
+> incompatible with Node 24's module loader. Do not remove it.
+
 ## Quickstart
 
 ```bash

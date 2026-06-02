@@ -55,6 +55,7 @@ MATRIX_RECOVERY_PHRASE="${values.matrixRecoveryPhrase}"
 MATRIX_VALUE_PIN=${values.matrixPin}
 MATRIX_ACCOUNT_ROOM_ID="${values.matrixRoomId}"
 MATRIX_STORE_PATH=./.data/matrix-storage
+ORACLE_DID=${values.oracleDid}
 
 # Blockchain
 SECP_MNEMONIC="${values.mnemonic}"
@@ -89,7 +90,6 @@ SUBSCRIPTION_URL=${SUBSCRIPTION_API[net]}
 
 ### BACKUP — save these securely (values above are already set)
 # ORACLE_ADDRESS=${values.oracleAddress}
-# ORACLE_DID=${values.oracleDid}
 
 SKILLS_CAPSULES_BASE_URL="https://capsules.skills.ixo.earth"
 
@@ -196,9 +196,10 @@ export const createProjectEnvFile = async (config: RuntimeConfig, userDid: strin
   let composioApiKey = '';
   try {
     console.log('🔑 Setting up Composio API key...');
+
     const edMnemonic = await fetchOrCreateEdMnemonic({
       matrixHomeServerUrl: oracleMatrixHomeServerUrl,
-      matrixAccessToken: regResult.matrixAccessToken,
+      matrixAccessToken: freshMx.accessToken,
       matrixRoomId: regResult.matrixRoomId,
       pin: regResult.pin,
     });
