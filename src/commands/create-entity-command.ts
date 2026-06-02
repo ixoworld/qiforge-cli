@@ -16,7 +16,6 @@ import {
   selectNetwork,
 } from '../utils/common';
 import { CreateEntity } from '../utils/entity';
-import { saveOracleConfig } from '../utils/oracle-config';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
 
@@ -401,37 +400,6 @@ export class CreateEntityCommand implements Command {
     });
 
     p.log.info(`API for the oracle is: ${apiUrl} | You can change this after you deploy the oracle`);
-
-    // Save oracle.config.json for the chat command and other tooling
-    const projectPath = (this.config.getValue('projectPath') as string) ?? process.cwd();
-    try {
-      // User-provided MCPs are added after defaults
-
-      saveOracleConfig(projectPath, {
-        oracleName,
-        orgName,
-        description,
-        location,
-        website: website ?? '',
-        price: parseInt(oraclePrice),
-        apiUrl,
-        network: currentNetwork,
-        entityDid: did,
-        logo,
-        prompt: {
-          opening: promptOpening ?? '',
-          communicationStyle: promptStyle ?? '',
-          capabilities: promptCapabilities ?? '',
-        },
-        model: model ?? 'moonshotai/kimi-k2.5',
-        skills: skills ?? [],
-        customSkills: [],
-        mcpServers: mcpServers?.map((s) => ({ name: s.name ?? '', url: s.url, description: s.description ?? '' })) ?? [],
-      });
-      p.log.success(`Oracle config saved to ${projectPath}/oracle.config.json`);
-    } catch (err) {
-      p.log.warning(`Could not save oracle.config.json: ${err instanceof Error ? err.message : String(err)}`);
-    }
 
     // add to portal
     const portalBaseUrl = PORTAL_URL[currentNetwork ?? 'devnet'];
