@@ -79,7 +79,7 @@ export const BLOCKSYNC_GRAPHQL_URL: Record<NETWORK, string> = {
 };
 
 export const MEMORY_ENGINE_API = {
-  devnet: "https://mcp-memory-engine.devnet.ixo.earth/",
+  devnet: "https://memory-engine.devnet.ixo.earth/",
   testnet: "https://memory-engine.testnet.ixo.earth/",
   mainnet: "https://memory-engine.ixo.earth/",
 };
