@@ -3,6 +3,9 @@
 
 name: NPM Package Release
 
+permissions:
+  id-token: write
+
 on:
   workflow_dispatch:
 
@@ -25,5 +28,3 @@ jobs:
       - name: Build packages
         run: pnpm build
       - run: pnpm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
