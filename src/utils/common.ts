@@ -79,14 +79,14 @@ export const BLOCKSYNC_GRAPHQL_URL: Record<NETWORK, string> = {
 };
 
 export const MEMORY_ENGINE_API = {
-  devnet: "https://memory-engine.devnet.ixo.earth/",
-  testnet: "https://memory-engine.testnet.ixo.earth/",
-  mainnet: "https://memory-engine.ixo.earth/",
+  devnet: "https://memory-engine.devnet.ixo.earth",
+  testnet: "https://memory-engine.testnet.ixo.earth",
+  mainnet: "https://memory-engine.ixo.earth",
 };
 export const MEMORY_ENGINE_MCP = {
-  devnet: "https://mcp-memory-engine.devnet.ixo.earth/",
-  testnet: "https://mcp-memory-engine.testnet.ixo.earth/",
-  mainnet: "https://mcp-memory-engine.ixo.earth/",
+  devnet: "https://mcp-memory-engine.devnet.ixo.earth/mcp",
+  testnet: "https://mcp-memory-engine.testnet.ixo.earth/mcp",
+  mainnet: "https://mcp-memory-engine.ixo.earth/mcp",
 };
 
 export const SANDBOX_API = {
