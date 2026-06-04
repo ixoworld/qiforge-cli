@@ -1,0 +1,25 @@
+# @veramo/credential-ld pulls in @veramo-community/lds-ecdsa-secp256k1-recovery2020
+# via a git URL (not published to npm). Allow exotic subdeps so pnpm resolves it.
+blockExoticSubdeps: false
+
+overrides:
+  "@digitalbazaar/http-client": "4.2.0"
+
+# Exclude @ixo/* packages from the minimumReleaseAge supply-chain check so
+# freshly-published runtime versions install without a policy violation.
+minimumReleaseAgeExclude:
+  - "@ixo/*"
+
+# Native/postinstall-heavy packages that are safe to build.
+# pnpm v11 replaced onlyBuiltDependencies with allowBuilds.
+allowBuilds:
+  "@ixo/matrix-sdk-crypto-nodejs": true
+  "@matrix-org/matrix-sdk-crypto-nodejs": true
+  "@nestjs/core": true
+  "@scarf/scarf": true
+  better-sqlite3: true
+  esbuild: true
+  maplibre-gl: true
+  msgpackr-extract: true
+  protobufjs: true
+  secp256k1: true
