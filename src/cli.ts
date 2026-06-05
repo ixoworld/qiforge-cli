@@ -214,6 +214,15 @@ class CLIManager {
       return;
     }
 
+    // Handle version
+    if (command === '--version' || command === '-v' || command === '--v') {
+      const { createRequire } = await import('node:module');
+      const require = createRequire(import.meta.url);
+      const { version } = require('../package.json') as { version: string };
+      console.log(version);
+      return;
+    }
+
     // Handle help
     if (command === '--help' || command === '-h') {
       await this.showHelp();
