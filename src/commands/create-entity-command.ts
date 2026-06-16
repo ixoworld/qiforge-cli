@@ -16,6 +16,7 @@ import {
   selectNetwork,
 } from '../utils/common';
 import { CreateEntity } from '../utils/entity';
+import { selectRelayerNode } from '../utils/relayer-node';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
 
@@ -89,7 +90,7 @@ export class CreateEntityCommand implements Command {
       parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
       apiUrl = flags['api-url'] ?? 'http://localhost:4000';
       matrixHomeServerUrl = defaultMatrixUrl;
-      relayerNodeDid = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
+      relayerNodeDid = flags['relayer-node'] ?? RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
 
       // A5 flags
       model = flags.model;
@@ -129,6 +130,9 @@ export class CreateEntityCommand implements Command {
         }
         oraclePrice = priceResult as string;
 
+        // Let devs choose the relayer node (IXO default or a custom one).
+        relayerNodeDid = await selectRelayerNode(currentNetwork ?? 'devnet');
+
         oracleName = prefilledOracleName ?? 'My Oracle';
         orgName = prefilledOrgName ?? 'IXO';
         profileName = oracleName;
@@ -140,7 +144,6 @@ export class CreateEntityCommand implements Command {
         parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
         apiUrl = 'http://localhost:4000';
         matrixHomeServerUrl = defaultMatrixUrl;
-        relayerNodeDid = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
         model = 'moonshotai/kimi-k2.5';
 
         const selectedPluginsStr = this.config.getValue('selectedPlugins') as string | undefined;
@@ -256,14 +259,6 @@ export class CreateEntityCommand implements Command {
                   return checkRequiredURL(value, 'API URL is required or a valid URL');
                 },
               }),
-            relayerNodeDid: () => {
-              const defaultRelayer = RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
-              return p.text({
-                message: 'Relayer node DID (optional, press Enter for default):',
-                initialValue: defaultRelayer,
-                defaultValue: defaultRelayer,
-              });
-            },
           },
           {
             onCancel: () => {
@@ -285,7 +280,9 @@ export class CreateEntityCommand implements Command {
         parentProtocol = results.parentProtocol;
         apiUrl = results.apiUrl;
         matrixHomeServerUrl = results.matrixHomeServerUrl;
-        relayerNodeDid = results.relayerNodeDid;
+
+        // Relayer node: IXO default or a custom node (verified + confirmed).
+        relayerNodeDid = await selectRelayerNode(currentNetwork ?? 'devnet');
 
         const modelChoice = await p.select({
           message: 'Select the default LLM model (press Enter for default):',

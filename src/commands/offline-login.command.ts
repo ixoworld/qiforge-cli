@@ -129,6 +129,7 @@ export class OfflineLoginCommand implements Command {
         mode: 'offline',
         offlineConfig: {
           mnemonic,
+          matrixPassword,
         },
       });
 
