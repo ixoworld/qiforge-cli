@@ -48,9 +48,8 @@ export class CreateComposioKeyCommand implements Command {
     if (!matrixHomeServer) {
       return { success: false, error: 'Cannot derive Matrix homeserver from wallet' };
     }
-    const matrixAccessToken = w.matrix?.accessToken;
     const matrixRoomId = w.matrix?.roomId;
-    if (!matrixAccessToken || !matrixRoomId) {
+    if (!matrixRoomId) {
       return { success: false, error: 'Matrix credentials missing from wallet' };
     }
     if (!w.address) {
@@ -60,6 +59,10 @@ export class CreateComposioKeyCommand implements Command {
     const s = p.spinner();
 
     try {
+      // Get a fresh Matrix access token (offline wallets re-login) so a stale
+      // stored token doesn't break the room-state read/write below.
+      const matrixAccessToken = await this.wallet.getFreshMatrixAccessToken();
+
       s.start('Fetching / creating ED signing mnemonic...');
       const edMnemonic = await fetchOrCreateEdMnemonic({
         matrixHomeServerUrl: matrixHomeServer,

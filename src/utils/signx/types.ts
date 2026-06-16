@@ -11,6 +11,13 @@ export interface MatrixLoginProps {
 
 export interface OfflineWalletConfig {
   mnemonic: string;
+  /**
+   * The user's Matrix password. Persisted for offline wallets only so the CLI
+   * can re-login and obtain a fresh Matrix access token when needed (e.g. when
+   * minting a Composio API key). Offline wallets already store the mnemonic in
+   * plaintext, so this is consistent with that trust model.
+   */
+  matrixPassword?: string;
 }
 
 export interface WalletProps {

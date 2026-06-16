@@ -2,7 +2,6 @@ import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import fs from 'fs';
 import path from 'path';
 import { mxLogin } from './account/matrix';
-import { getSecpClient, signAndBroadcastWithMnemonic } from './account/utils';
 import {
   BLOCKSYNC_GRAPHQL_URL,
   CHAIN_RPC,
@@ -13,8 +12,9 @@ import {
   SANDBOX_API,
   SUBSCRIPTION_API,
 } from './common';
-import { COMPOSIO_BASE_URL, createComposioApiKey, fetchOrCreateEdMnemonic, SignAndBroadcastFn } from './composio';
+import { COMPOSIO_BASE_URL, createComposioApiKey, fetchOrCreateEdMnemonic } from './composio';
 import { RuntimeConfig } from './runtime-config';
+import { Wallet } from './wallet';
 
 interface EnvValues {
   oracleName: string;
@@ -167,7 +167,7 @@ function writeEnvFile(filePath: string, content: string): void {
   }
 }
 
-export const createProjectEnvFile = async (config: RuntimeConfig, userDid: string) => {
+export const createProjectEnvFile = async (config: RuntimeConfig, wallet: Wallet) => {
   const oracleMatrixHomeServerUrl = config.getOrThrow('oracleMatrixHomeServerUrl');
   const network = config.getOrThrow('network') as NETWORK;
   const regResult = config.getOrThrow('registerUserResult');
@@ -192,34 +192,40 @@ export const createProjectEnvFile = async (config: RuntimeConfig, userDid: strin
   const oracleName = (config.getValue('projectName') as string) ?? '';
   const entityDid = config.getOrThrow('entityDid');
 
-  // Fetch or create the oracle's ED signing mnemonic, then create a Composio API key
+  // Mint a Composio API key for the oracle. This is delegated by the *user's*
+  // wallet identity (not the oracle's): the ED signing mnemonic lives in the
+  // user's Matrix room and the on-chain verification method is added to the
+  // user's IID, signed by the user's wallet. Using the oracle's account here
+  // would fail because the oracle cannot modify the user's IID document.
   let composioApiKey = '';
   try {
     console.log('🔑 Setting up Composio API key...');
 
+    const userMatrixHomeServer = wallet.matrixHomeServer;
+    const userMatrix = wallet.matrix;
+    if (!userMatrixHomeServer || !userMatrix?.roomId || !wallet.address || !wallet.did) {
+      throw new Error('User wallet Matrix credentials are incomplete');
+    }
+
+    // Use a fresh user Matrix token (offline wallets re-login) so a stale
+    // stored token doesn't break the room-state read/write below.
+    const userMatrixAccessToken = await wallet.getFreshMatrixAccessToken();
+
     const edMnemonic = await fetchOrCreateEdMnemonic({
-      matrixHomeServerUrl: oracleMatrixHomeServerUrl,
-      matrixAccessToken: freshMx.accessToken,
-      matrixRoomId: regResult.matrixRoomId,
+      matrixHomeServerUrl: userMatrixHomeServer,
+      matrixAccessToken: userMatrixAccessToken,
+      matrixRoomId: userMatrix.roomId,
       pin: regResult.pin,
     });
-    const offlineSigner = await getSecpClient(regResult.mnemonic);
-    const signAndBroadcast: SignAndBroadcastFn = (msgs, memo) =>
-      signAndBroadcastWithMnemonic({
-        offlineSigner,
-        messages: [...msgs],
-        memo,
-        network,
-      });
 
     composioApiKey = await createComposioApiKey({
-      userDid,
+      userDid: wallet.did,
       oracleDid: regResult.did,
-      address: regResult.address,
+      address: wallet.address,
       edMnemonic,
       network,
       label: oracleName,
-      signAndBroadcast,
+      signAndBroadcast: (msgs, memo) => wallet.signAndBroadcast(msgs, memo),
     });
     console.log('✅ Composio API key created');
     console.log(`💡 Manage your Composio API keys at ${COMPOSIO_BASE_URL}`);

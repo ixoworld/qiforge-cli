@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { unlink } from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { generateUsernameFromAddress, mxLoginRaw } from './account/matrix';
 import { getSecpClient, signAndBroadcastWithMnemonic } from './account/utils';
 import { RuntimeConfig } from './runtime-config';
 import { SignXClient } from './signx/signx';
@@ -144,6 +145,42 @@ export class Wallet {
 
   public reloadWallet() {
     this.loadWallet();
+  }
+
+  /**
+   * Returns a Matrix access token for the user's wallet account, refreshing it
+   * when possible. Offline wallets persist the Matrix password, so we re-login
+   * to obtain a fresh token (the stored one may have gone stale). SignX wallets
+   * have no stored password to re-login with, so the existing session token is
+   * returned. Used when acting as the user's Matrix account (e.g. minting a
+   * Composio API key) so we don't fail on an expired token.
+   */
+  async getFreshMatrixAccessToken(): Promise<string> {
+    const matrix = this.wallet?.matrix;
+    if (!matrix?.accessToken) {
+      throw new Error('Matrix credentials missing from wallet');
+    }
+
+    const homeServerUrl = this.matrixHomeServer;
+    const password = this.wallet?.offlineConfig?.matrixPassword;
+    if (this.wallet?.mode === 'offline' && homeServerUrl && password && this.wallet.address) {
+      try {
+        const username = generateUsernameFromAddress(this.wallet.address);
+        const login = await mxLoginRaw({ homeServerUrl, username, password });
+        // Persist the refreshed token so subsequent operations reuse it.
+        this.wallet.matrix.accessToken = login.accessToken;
+        this.setWallet(this.wallet);
+        return login.accessToken;
+      } catch (error) {
+        log.warning(
+          `Could not refresh Matrix token, using existing session: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    return matrix.accessToken;
   }
 
   /**

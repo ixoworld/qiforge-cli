@@ -324,7 +324,7 @@ export class NewCommand implements Command {
       }
       p.log.success('Oracle entity + Matrix account created');
 
-      await createProjectEnvFile(this.config, this.wallet.did ?? '');
+      await createProjectEnvFile(this.config, this.wallet);
 
       if (install) {
         const installSpinner = p.spinner();
