@@ -2,6 +2,11 @@ import * as p from '@clack/prompts';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { Command } from '.';
 import { CLIResult } from '../types';
+import {
+  AgentCardContent,
+  buildAgentCardSeeds,
+  promptAgentCardServices,
+} from '../utils/agent-card';
 import { parseCliFlags } from '../utils/cli-flags';
 import {
   checkRequiredMatrixUrl,
@@ -351,6 +356,29 @@ export class CreateEntityCommand implements Command {
       }
     }
 
+    // Agent Card (optional, skippable) — seeded from the A5 inputs + selected
+    // plugins; the developer confirms/edits every service before anything is
+    // published. Skipped in non-interactive mode (seeds must never be published
+    // unseen) — use `agent-card --no-interactive --card` instead.
+    let agentCard: AgentCardContent | undefined;
+    if (noInteractive) {
+      p.log.info('Skipping Agent Card in non-interactive mode — publish one later with: qiforge-cli agent-card');
+    } else {
+      const wantsCard = await p.confirm({
+        message: 'Add an Agent Card now? (You can run `qiforge-cli agent-card` later)',
+        initialValue: true,
+      });
+      if (p.isCancel(wantsCard)) {
+        p.cancel('Operation cancelled.');
+        process.exit(0);
+      }
+      if (wantsCard) {
+        const seeds = buildAgentCardSeeds({ skills, promptCapabilities });
+        const services = await promptAgentCardServices(seeds);
+        agentCard = { name: oracleName, description, version: '1.0.0', services };
+      }
+    }
+
     // Resolve PIN: flag or let CreateEntity prompt interactively
     let pin: string | undefined;
     if (flags.pin) {
@@ -394,6 +422,7 @@ export class CreateEntityCommand implements Command {
       matrixHomeServerUrl,
       ...(relayerNodeDid ? { relayerNodeDid } : {}),
       ...(pin ? { pin } : {}),
+      ...(agentCard ? { agentCard } : {}),
     });
 
     p.log.info(`API for the oracle is: ${apiUrl} | You can change this after you deploy the oracle`);

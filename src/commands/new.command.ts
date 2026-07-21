@@ -6,63 +6,13 @@ import { Command } from '.';
 import { CLIResult } from '../types';
 import { parseCliFlags } from '../utils/cli-flags';
 import { createProjectEnvFile } from '../utils/create-project-env-file';
+import { BASE_BUNDLE, PLUGIN_CATALOG } from '../utils/plugin-catalog';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { findTemplate, loadTemplateCatalog, type TemplateEntry } from '../utils/template-catalog';
 import { renderTemplate } from '../utils/template-renderer';
 import { getTemplatesDir } from '../utils/templates-dir';
 import { Wallet } from '../utils/wallet';
 import { CreateEntityCommand } from './create-entity-command';
-
-interface PluginEntry {
-  value: string;
-  label: string;
-  hint: string;
-  envVars: string[];
-}
-
-const PLUGIN_CATALOG: PluginEntry[] = [
-  {
-    value: 'memory',
-    label: 'Memory',
-    hint: 'Long-term memory — remembers context across sessions',
-    envVars: ['MEMORY_ENGINE_URL', 'MEMORY_MCP_URL'],
-  },
-  { value: 'sandbox', label: 'Sandbox', hint: 'Sandboxed code execution and file tools', envVars: ['SANDBOX_MCP_URL'] },
-  {
-    value: 'skills',
-    label: 'Skills',
-    hint: 'Discover and invoke AI agent skills from the skills registry',
-    envVars: ['SKILLS_CAPSULES_BASE_URL'],
-  },
-  {
-    value: 'composio',
-    label: 'Composio',
-    hint: '250+ integrations — Slack, GitHub, Gmail, Notion, and more',
-    envVars: ['COMPOSIO_API_KEY'],
-  },
-  {
-    value: 'firecrawl',
-    label: 'Firecrawl',
-    hint: 'Web scraping, crawling, and real-time search',
-    envVars: ['FIRECRAWL_API_KEY'],
-  },
-  {
-    value: 'domain-indexer',
-    label: 'Domain Indexer',
-    hint: 'Index and search IXO entities on-chain',
-    envVars: ['DOMAIN_INDEXER_URL'],
-  },
-  {
-    value: 'user-preferences',
-    label: 'User Preferences',
-    hint: 'Persist per-user settings across sessions',
-    envVars: [],
-  },
-  { value: 'portal', label: 'Portal', hint: 'IXO portal integration for claims and projects', envVars: [] },
-  { value: 'credits', label: 'Credits', hint: 'Token-based usage credits and rate limiting', envVars: ['REDIS_URL'] },
-];
-
-const BASE_BUNDLE = ['memory', 'sandbox'];
 
 /**
  * `qiforge new <name>` — scaffolds a standalone oracle from bundled code

@@ -11,6 +11,12 @@ import {
   SimplifiedRegistrationResult,
 } from "./account/simplifiedRegistration";
 import {
+  AgentCardContent,
+  buildAgentCard,
+  fetchAgentCardSchema,
+  validateAgentCard,
+} from "./agent-card";
+import {
   checkRequiredPin,
   DOMAIN_INDEXER_URL,
   RELAYER_NODE_DID,
@@ -43,6 +49,8 @@ interface CreateEntityParams {
   matrixHomeServerUrl: string;
   relayerNodeDid?: string;
   pin?: string;
+  /** Optional Agent Card content — confirmed by the developer beforehand. */
+  agentCard?: AgentCardContent;
 }
 type Denom =
   | "uixo"
@@ -492,6 +500,53 @@ export class CreateEntity {
     });
   }
 
+  private async createAgentCard({
+    agentCard,
+    entityDid,
+    homeServerUrl,
+    accessToken,
+  }: {
+    agentCard: AgentCardContent;
+    entityDid: string;
+    homeServerUrl: string;
+    accessToken: string;
+  }): Promise<LinkedResource> {
+    const card = buildAgentCard({
+      entityDid,
+      issuerDid: this.wallet.did!,
+      ...agentCard,
+    });
+
+    // Validate against the engine's schema (or the bundled snapshot) before
+    // anything touches Matrix/chain — same lane as the `agent-card` command.
+    const network = (this.config.getValue("network") as NETWORK) ?? "devnet";
+    const { schema } = await fetchAgentCardSchema(network);
+    const errors = validateAgentCard(card, schema);
+    if (errors.length > 0) {
+      throw new Error(
+        `Agent Card failed schema validation:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+      );
+    }
+
+    const response = await publicUpload({
+      data: card,
+      fileName: "agentCard",
+      homeServerUrl,
+      accessToken,
+    });
+
+    return ixo.iid.v1beta1.LinkedResource.fromPartial({
+      id: "{id}#acard",
+      type: "agentCard",
+      proof: response.proof,
+      right: "",
+      encrypted: "false",
+      mediaType: "application/json",
+      description: "Agent Card",
+      serviceEndpoint: response.serviceEndpoint,
+    });
+  }
+
   private async addProfile({
     orgName,
     name,
@@ -719,6 +774,47 @@ export class CreateEntity {
       log.info("Sign to add domain card to the entity");
       await this.wallet.signAndBroadcast([addDomainCardMsg]);
       log.success("Domain card added to entity");
+    }
+
+    // =================================================================================================
+    // 4.5. CREATE AND ATTACH AGENT CARD (optional) using oracle's credentials
+    // =================================================================================================
+    if (params.agentCard && this.wallet.wallet?.address) {
+      try {
+        log.info("Creating agent card");
+        const agentCardResource = await this.createAgentCard({
+          agentCard: params.agentCard,
+          entityDid: did,
+          homeServerUrl: oracleHomeServerUrl,
+          accessToken: oracleAccessToken,
+        });
+
+        const addAgentCardMsg = {
+          typeUrl: "/ixo.iid.v1beta1.MsgAddLinkedResource",
+          value: ixo.iid.v1beta1.MsgAddLinkedResource.fromPartial({
+            id: did,
+            linkedResource: ixo.iid.v1beta1.LinkedResource.fromPartial({
+              id: agentCardResource.id,
+              description: agentCardResource.description,
+              type: agentCardResource.type,
+              proof: agentCardResource.proof,
+              mediaType: agentCardResource.mediaType,
+              encrypted: agentCardResource.encrypted,
+              serviceEndpoint: agentCardResource.serviceEndpoint,
+            }),
+            signer: this.wallet.wallet.address,
+          }),
+        };
+        log.info("Sign to add agent card to the entity");
+        await this.wallet.signAndBroadcast([addAgentCardMsg]);
+        log.success("Agent card added to entity");
+      } catch (error) {
+        // An oracle without a card is valid — it just can't be contracted yet.
+        log.warn(
+          `Failed to publish agent card: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        log.warn("You can publish it later using: qiforge-cli agent-card");
+      }
     }
 
     // =================================================================================================

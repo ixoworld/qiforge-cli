@@ -27,17 +27,21 @@ function decrypt(ciphertext: string, pin: string): string {
   return dec.toString('utf8');
 }
 
-export async function fetchOrCreateEdMnemonic({
-  matrixHomeServerUrl,
-  matrixAccessToken,
-  matrixRoomId,
-  pin,
-}: {
-  matrixHomeServerUrl: string;
-  matrixAccessToken: string;
-  matrixRoomId: string;
-  pin: string;
-}): Promise<string> {
+export async function fetchOrCreateEdMnemonic(
+  {
+    matrixHomeServerUrl,
+    matrixAccessToken,
+    matrixRoomId,
+    pin,
+  }: {
+    matrixHomeServerUrl: string;
+    matrixAccessToken: string;
+    matrixRoomId: string;
+    pin: string;
+  },
+  options: { allowCreate?: boolean } = {},
+): Promise<string> {
+  const { allowCreate = true } = options;
   const stateUrl = `${matrixHomeServerUrl}/_matrix/client/v3/rooms/${encodeURIComponent(
     matrixRoomId
   )}/state/ixo.room.state.secure/${ED_SIGNING_STATE_KEY}`;
@@ -62,7 +66,13 @@ export async function fetchOrCreateEdMnemonic({
     throw new Error(`Failed to read ED signing mnemonic from Matrix (${res.status})`);
   }
 
-  // Not found — generate and store a new one
+  // Not found — generate and store a new one (unless the caller needs the
+  // runtime-provisioned key and a fresh one would be useless, e.g. dashboard-access)
+  if (!allowCreate) {
+    throw new Error(
+      "No claim-signing key found in this oracle's Matrix room — run the oracle once (pnpm dev) so the runtime provisions it, then retry.",
+    );
+  }
   const edMnemonic = utils.mnemonic.generateMnemonic(12);
   const stored = await fetch(stateUrl, {
     method: 'PUT',
