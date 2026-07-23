@@ -175,7 +175,47 @@ Resolution order in `create-project-env-file.ts`:
 `fetchOrCreateEdMnemonic` keeps its current signature; the caller resolves which
 PIN to pass. The per-oracle vault PIN is never again used against the user's room.
 
-### 4. Composio error surfacing
+### 4. Enrich the domain card with Agent Card services
+
+The Agent Card carries the richest description of what the oracle actually does
+(named services, prices, deliverables, acceptance criteria). That information
+should also land on the **domain card**, which is the entity's public profile
+document, so consumers reading the domain card see the offering without having to
+resolve the separate Agent Card resource.
+
+The IXO domain-card schema already reserves `credentialSubject.makesOffer`
+(`https://raw.githubusercontent.com/ixoworld/domainCards/main/schemas/ixo-domain-card-1.json`,
+`type: ["object","array"]`, `additionalProperties: true`). Map each Agent Card
+service to a `schema:Offer`:
+
+```jsonc
+{
+  "type": "schema:Offer",
+  "identifier": "<service.id>",
+  "itemOffered": {
+    "type": "schema:Service",
+    "name": "<service.name>",
+    "description": "<service.description>",
+    "serviceOutput": "<service.deliverables>"
+  },
+  "priceSpecification": {
+    "type": "schema:PriceSpecification",
+    "price": <service.price.amount>,
+    "priceCurrency": "USDC"
+  },
+  "ixo:acceptanceCriteria": ["<...service.doneMeans>"]
+}
+```
+
+`CreateEntity.createDomainCard()` gains an optional `services` parameter. When
+present and non-empty, `credentialSubject.makesOffer` is set to the mapped array;
+when absent, the field is omitted entirely (existing behaviour unchanged).
+`params.agentCard?.services` is already in scope at the `createDomainCard()` call
+site (`entity.ts:748`), so this is a wiring change, not a new data source. The
+mapping is a pure function (`servicesToOffers`) exported from `agent-card.ts` for
+unit testing.
+
+### 5. Composio error surfacing
 
 Stays non-fatal — a project without a Composio key is still usable — but the
 catch at `create-project-env-file.ts:232` distinguishes causes and prints a
@@ -189,6 +229,11 @@ recovery path instead of one vague line:
 ```
 
 `create-composio-key` already exists as a registered command.
+
+## Section numbering note
+
+Sections were renumbered when domain-card enrichment (§4) was inserted; Composio
+error surfacing is §5.
 
 ## Testing
 
