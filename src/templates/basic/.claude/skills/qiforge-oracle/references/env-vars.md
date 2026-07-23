@@ -20,6 +20,7 @@ Required regardless of which plugins you ship. These are validated by the runtim
 | `CORS_ORIGIN` | optional | Default `*`. |
 | `SQLITE_DATABASE_PATH` | optional | Path for the checkpointer DB. Default `./.data/sqlite`. |
 | `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | optional | Enables LangSmith tracing. |
+| `AGENT_CARD_PATH` | optional | Path to the local Agent Card copy, set by `qiforge-cli agent-card` (default `./agent-card.json`). |
 
 ## Bundled-plugin env (only loaded plugins read theirs)
 

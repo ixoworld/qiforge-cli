@@ -1,9 +1,15 @@
 import * as p from '@clack/prompts';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { Ajv2020 } from 'ajv/dist/2020';
+import { writeFileSync } from 'fs';
+import path from 'path';
 import agentCardSchemaSnapshot from '../schemas/agent-card-schema.json';
 import { checkRequiredString, EVAL_ENGINE_URL } from './common';
+import { upsertEnvVar } from './env-file';
 import { PLUGIN_CATALOG } from './plugin-catalog';
+
+/** The developer's local, versioned copy of the published card. */
+export const AGENT_CARD_FILENAME = 'agent-card.json';
 
 const SCHEMA_FETCH_TIMEOUT_MS = 10000;
 export const MAX_SERVICES = 20;
@@ -77,6 +83,19 @@ export function buildAgentCard({
     validFrom: new Date().toISOString(),
     credentialSubject: { id: entityDid, name, description, version, services },
   };
+}
+
+/**
+ * Writes the published card to `<projectPath>/agent-card.json` and points
+ * `AGENT_CARD_PATH` at it in the project's `.env` — a local, versioned copy
+ * of what's live on Matrix/chain, so the oracle runtime (and its developer)
+ * can read the card without re-fetching it from Matrix.
+ */
+export function saveAgentCardLocally(projectPath: string, card: AgentCard): string {
+  const cardPath = path.join(projectPath, AGENT_CARD_FILENAME);
+  writeFileSync(cardPath, `${JSON.stringify(card, null, 2)}\n`);
+  upsertEnvVar(path.join(projectPath, '.env'), 'AGENT_CARD_PATH', `./${AGENT_CARD_FILENAME}`);
+  return cardPath;
 }
 
 /**

@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import { ixo } from '@ixo/impactxclient-sdk';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { readFileSync } from 'fs';
+import path from 'path';
 import { Command } from '.';
 import { CLIResult } from '../types';
 import {
@@ -9,6 +10,7 @@ import {
   buildAgentCard,
   fetchAgentCardSchema,
   promptAgentCardServices,
+  saveAgentCardLocally,
   validateAgentCard,
 } from '../utils/agent-card';
 import { parseCliFlags } from '../utils/cli-flags';
@@ -20,8 +22,21 @@ import {
 } from '../utils/common';
 import { deriveHomeServerUrl } from '../utils/encryption-key';
 import { publicUpload } from '../utils/matrix/upload-to-matrix';
+import { detectOracleProject } from '../utils/project-detector';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
+
+/** Best-effort default for "where should the local Agent Card copy live" —
+ *  the session's known project, or the oracle project detected from cwd. */
+function detectDefaultProjectPath(config: RuntimeConfig): string | undefined {
+  const fromSession = config.getValue('projectPath') as string | undefined;
+  if (fromSession) return fromSession;
+  try {
+    return detectOracleProject(process.cwd()).root;
+  } catch {
+    return undefined;
+  }
+}
 
 const BLOCKSYNC_LOOKUP_TIMEOUT_MS = 10000;
 
@@ -155,6 +170,15 @@ export class AgentCardCommand implements Command {
               return checkRequiredString(value, 'Card version is required');
             },
           }),
+        projectPath: () =>
+          p.text({
+            message:
+              'Project path to save a local copy of the Agent Card (sets AGENT_CARD_PATH in .env):',
+            initialValue: detectDefaultProjectPath(this.config) ?? process.cwd(),
+            validate(value) {
+              return checkRequiredString(value, 'Project path is required');
+            },
+          }),
       },
       {
         onCancel: () => {
@@ -233,6 +257,7 @@ export class AgentCardCommand implements Command {
       network,
       homeServerUrl: deriveHomeServerUrl(matrix.matrixRoomId),
       accessToken: matrix.matrixAccessToken,
+      projectPath: path.resolve(base.projectPath),
     });
   }
 
@@ -287,12 +312,23 @@ export class AgentCardCommand implements Command {
       throw new Error(`Card id must be "${entityDid}#acard" (got "${card.id}")`);
     }
 
+    const projectPathFlag = flags['project-path'];
+    const projectPath = projectPathFlag
+      ? path.resolve(projectPathFlag)
+      : detectDefaultProjectPath(this.config);
+    if (!projectPath) {
+      p.log.warn(
+        'Could not determine a project path — the Agent Card will be published but not saved locally. Pass --project-path to save a copy and set AGENT_CARD_PATH.',
+      );
+    }
+
     return this.publishCard({
       card,
       entityDid,
       network,
       homeServerUrl: deriveHomeServerUrl(matrixRoomId),
       accessToken: matrixAccessToken,
+      projectPath,
     });
   }
 
@@ -306,12 +342,14 @@ export class AgentCardCommand implements Command {
     network,
     homeServerUrl,
     accessToken,
+    projectPath,
   }: {
     card: AgentCard;
     entityDid: string;
     network: NETWORK;
     homeServerUrl: string;
     accessToken: string;
+    projectPath: string | undefined;
   }): Promise<CLIResult> {
     const walletAddress = this.wallet.wallet?.address;
     if (!walletAddress) {
@@ -382,9 +420,24 @@ export class AgentCardCommand implements Command {
     p.log.success(`Agent Card published to entity DID: ${entityDid}`);
     p.log.info(`Resource: ${entityDid}#acard · proof (CID): ${upload.proof}`);
 
+    let cardPath: string | undefined;
+    if (projectPath) {
+      try {
+        cardPath = saveAgentCardLocally(projectPath, card);
+        p.log.success(`Local copy saved to ${cardPath}`);
+        p.log.info(`AGENT_CARD_PATH set in ${path.join(projectPath, '.env')}`);
+      } catch (error) {
+        // The card is already published on-chain — a local-save failure is a
+        // convenience miss, not grounds to report the command as failed.
+        p.log.warn(
+          `Published, but failed to save a local copy: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     return {
       success: true,
-      data: `Agent Card published for ${entityDid} (CID: ${upload.proof})`,
+      data: `Agent Card published for ${entityDid} (CID: ${upload.proof})${cardPath ? ` — local copy: ${cardPath}` : ''}`,
     };
   }
 }

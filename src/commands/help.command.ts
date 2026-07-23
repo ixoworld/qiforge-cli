@@ -49,6 +49,7 @@ AGENT CARD COMMAND FLAGS (qiforge-cli agent-card):
   --matrix-room-id <id>       Oracle Matrix room ID (derives the homeserver)
   --matrix-access-token <t>   Oracle Matrix access token
   --network <net>             devnet | testnet | mainnet (default: devnet)
+  --project-path <dir>        Oracle project dir to save a local copy into (sets AGENT_CARD_PATH in .env)
 
 DASHBOARD ACCESS COMMAND FLAGS (qiforge-cli dashboard-access):
   --env <path>                Oracle project .env with SECP_MNEMONIC + Matrix creds
