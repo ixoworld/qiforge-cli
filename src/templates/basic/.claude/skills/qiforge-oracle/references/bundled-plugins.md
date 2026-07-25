@@ -2,6 +2,8 @@
 
 The runtime ships 14 plugins out of the box. They all resolve at boot — toggling is via `features` in `createOracleApp`, and most are gated by `autoDetect` on their env vars.
 
+Four more (`credits`, `slack`, `calls`, `flows`) live in the package but are **not** in `BUNDLED_PLUGINS`, so `features` never reaches them — construct each one and pass it in `plugins`.
+
 ## The catalog
 
 | Name | Visibility | Default behavior | Required env | What it does |
@@ -15,11 +17,37 @@ The runtime ships 14 plugins out of the box. They all resolve at boot — toggli
 | `skills` | always | on (needs `sandbox`) | — | Discover and run capsule skills. |
 | `editor` | on-demand | on (needs Matrix) | — | Collaborative document editor (Matrix-backed). |
 | `agui` | on-demand | on | — | Agentic UI primitives. |
-| `slack` | silent | auto-detect | `SLACK_BOT_OAUTH_TOKEN` | Slack bot integration. |
-| `tasks` | stub | auto-detect | `REDIS_URL` | Background queues (BullMQ) — currently stub. |
-| `credits` | silent | on unless `DISABLE_CREDITS=true` | — | Per-user credit accounting. |
-| `calls` | stub | on | — | Voice/calls — currently stub. |
+| `tasks` | on-demand | auto-detect | `REDIS_URL` | Background queues (BullMQ). |
 | `user-preferences` | always | on | — | Per-user preference store. Tool: `set_user_preferences`. Fields: `agentName` (overrides `config.name` in the prompt), `language`, `tone`, `formality`, `customInstructions`. |
+| `matrix-group-chats` | on-demand | on | — | Bot gating + per-room compacted memory for Matrix group rooms. |
+| `vfs` | on-demand (`vfs_search`/`vfs_read` always) | on | — (worker URLs from `NETWORK`) | Read, write, search, and share the user's real files on their Virtual Filesystem. |
+| `oracle-payments` | always | on unless `ORACLE_PAYMENTS_DISABLED=true` | — (`EVAL_ENGINE_URL` for the paid lane) | Sell services from Matrix chat. See below. |
+
+### Not bundled — wire in explicitly
+
+| Name | Construct with | What it does |
+| --- | --- | --- |
+| `credits` | `new CreditsPlugin({ redis, network })` | Per-user credit accounting + LLM token metering + on-chain settlement cron. With it off there is **no** metering at all. |
+| `slack` | `new SlackPlugin()` | Slack bot transport (`SLACK_BOT_OAUTH_TOKEN`). |
+| `calls` | — | Voice/calls — stub, no tools yet. |
+| `flows` | `new FlowsPlugin({ matrixClient })` | Author and inspect multi-step Qi Flow templates. |
+
+## `oracle-payments` — selling services from the chat
+
+Turns the user's Matrix DM room into a commerce surface. The oracle runs two personas in one room: a free **support** persona (what do you sell, what does it cost, am I contracted?) and a paid **work** persona (performs one contracted service). A cheap classifier routes each Matrix message; once a job starts in a thread, routing is sticky for that thread.
+
+Key ideas:
+
+- **Agent Card** — the signed list of services the oracle sells, anchored on its entity as the `#acard` LinkedResource. Each service has an `id`, `name`, `description`, `price` (USDC), `deliverables`, and `doneMeans` (1–10 plain sentences that become the evaluation criteria). Publish with `qiforge-cli agent-card`; it also sets `AGENT_CARD_PATH`, which self-describes the plugin manifest so the model knows its own services without a tool call.
+- **Contract** — the user grants an on-chain `SubmitClaimAuthorization` scoped to chosen services, with a quota of jobs and a per-job max amount. Not a subscription.
+- **Engagement** — one paid job, keyed to a Matrix thread. **Only one active per user at a time** (the chain permits one active intent per agent + claim collection).
+- **Escrow** — the service price is reserved on-chain when work starts, unconditionally. Released on delivery, cancellation, or when the grant's intent duration lapses (defaults to 1 hour).
+- **Delivery** — `deliver_work` hands the file to the user *and* submits a work claim. An independent engine judges it against `doneMeans`: approval pays the oracle, rejection returns the escrow. The claim's `request`/`workSummary` are extracted from the thread by a separate model the work agent doesn't control.
+- **Cancellation** — `cancel_work` files a release claim, freeing the reservation immediately. Costs one quota slot.
+
+Tools: `list_services`, `show_contract`, `get_contract_status`, `get_thread_attachment` (support mode); `deliver_work`, `cancel_work`, `get_thread_attachment` (work mode).
+
+Prerequisites for the paid lane: an Agent Card published, `EVAL_ENGINE_URL` set, and an evaluation engine that accepts intent-backed agent-work claims. Chat and support work without any of it.
 
 ## What the runtime injects automatically
 
