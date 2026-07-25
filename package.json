@@ -48,7 +48,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@clack/prompts": "^1.0.1",
+    "@clack/prompts": "^1.7.0",
     "@cosmjs/crypto": "^0.39.0",
     "@cosmjs/encoding": "^0.39.0",
     "@cosmjs/proto-signing": "^0.39.0",

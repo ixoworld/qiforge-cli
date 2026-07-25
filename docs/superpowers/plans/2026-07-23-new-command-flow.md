@@ -23,7 +23,8 @@
 
 ## File Structure
 
-- `src/utils/agent-card.ts` — add `deriveServiceId()` and `servicesToOffers()`; rewrite `promptAgentCardServices()`/`promptService()` (auto-slug, blank-to-finish); delete `buildAgentCardSeeds()` and `AgentCardServiceSeed`.
+- `src/utils/service-id.ts` — **new, clack-free** module holding the pure helpers `deriveServiceId()` and `servicesToOffers()`. Lives apart from `agent-card.ts` because that module statically imports `@clack/prompts`, which is ESM-only (all 1.x); importing it into the ts-jest/CommonJS runtime throws `Cannot use import statement outside a module`. Keeping the pure logic dependency-free lets unit tests import it directly. (Confirmed: `transformIgnorePatterns` cannot rescue this — pnpm nests clack at `node_modules/.pnpm/@clack+prompts@*/node_modules/@clack/prompts`, which the pattern never matches; and updating clack does not help since every 1.x release is ESM-only.)
+- `src/utils/agent-card.ts` — re-export `deriveServiceId`/`servicesToOffers` from `./service-id`; rewrite `promptAgentCardServices()`/`promptService()` (auto-slug, blank-to-finish); delete `buildAgentCardSeeds()` and `AgentCardServiceSeed`.
 - `src/utils/plugin-catalog.ts` — **deleted**.
 - `src/utils/runtime-config.ts` — drop `selectedPlugins`, `authZFile`, `feesFile`; add `prefillLogo`, `agentCard`.
 - `src/utils/entity.ts` — enrich `createDomainCard()` with `makesOffer`; delete `createFeesConfig()` + `pricingList`; drop `oracleConfig.price`; stash built card in config.
@@ -32,7 +33,7 @@
 - `src/utils/create-project-env-file.ts` — use resolved user PIN, persist it, surface Composio failure cause + recovery.
 - `src/commands/new.command.ts` — new question set (avatar, network up front); remove plugin/model/prompt steps and IXO-price hint; save card locally after env file.
 - `src/commands/create-entity-command.ts` — remove price/model/prompt-* prompts; mandatory card in new-context path; consume `prefillLogo`.
-- `src/__tests__/agent-card.test.ts` — **new**, covers `deriveServiceId` + `servicesToOffers`.
+- `src/__tests__/agent-card.test.ts` — **new**, covers `deriveServiceId` + `servicesToOffers` (imports from `../utils/service-id`, not `../utils/agent-card`).
 - `src/__tests__/composio-pin.test.ts` — **new**, covers `resolveEdPinDecision`.
 - `src/__tests__/env-file.test.ts` — extend with post-rewrite `AGENT_CARD_PATH` survival test.
 
@@ -138,19 +139,21 @@ git commit -m "feat(agent-card): add deriveServiceId slug helper"
 ### Task 2: `servicesToOffers()` — map Agent Card services to schema:Offer
 
 **Files:**
-- Modify: `src/utils/agent-card.ts` (add exported function after `deriveServiceId`)
+- Modify: `src/utils/service-id.ts` (add exported function after `deriveServiceId`)
+- Modify: `src/utils/agent-card.ts` (extend the re-export to include `servicesToOffers`)
 - Test: `src/__tests__/agent-card.test.ts` (extend)
 
 **Interfaces:**
-- Consumes: `AgentCardService` (already exported from `agent-card.ts`).
-- Produces: `servicesToOffers(services: AgentCardService[]): Record<string, unknown>[]` — one `schema:Offer` object per service; `serviceOutput`/`acceptanceCriteria` omitted when their source field is empty.
+- Consumes: `AgentCardService` — imported **type-only** from `./agent-card` so the runtime import is elided (no `@clack/prompts` pulled into `service-id.ts`).
+- Produces: `servicesToOffers(services: AgentCardService[]): Record<string, unknown>[]` — one `schema:Offer` object per service; `serviceOutput`/`acceptanceCriteria` omitted when their source field is empty. Re-exported from `agent-card.ts` for consumers.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `src/__tests__/agent-card.test.ts`:
+Append to `src/__tests__/agent-card.test.ts` (import from the clack-free `service-id` module, not `agent-card`):
 
 ```ts
-import { servicesToOffers, type AgentCardService } from '../utils/agent-card';
+import { servicesToOffers } from '../utils/service-id';
+import { type AgentCardService } from '../utils/agent-card';
 
 const svc = (over: Partial<AgentCardService> = {}): AgentCardService => ({
   id: 'expense-report',

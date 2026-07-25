@@ -31,4 +31,11 @@ export interface WalletProps {
   ledgered: boolean;
   mode?: WalletMode;
   offlineConfig?: OfflineWalletConfig;
+  /**
+   * PIN that encrypts the user's ED signing mnemonic in their Matrix room (used
+   * to mint Composio delegations). Distinct from any per-oracle vault PIN.
+   * Persisted on first successful key provisioning so later projects don't
+   * re-prompt or reuse the wrong PIN.
+   */
+  edKeyPin?: string;
 }

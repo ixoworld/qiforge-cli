@@ -49,3 +49,17 @@ describe('upsertEnvVar', () => {
     expect(readFileSync(filePath, 'utf8')).toBe('LANGSMITH_PROJECT="my oracle_devnet"\n');
   });
 });
+
+describe('AGENT_CARD_PATH ordering', () => {
+  it('survives when upserted after a full .env rewrite', () => {
+    const filePath = tmpEnvPath();
+    // Simulate createProjectEnvFile writing the whole file first…
+    writeFileSync(filePath, 'ORACLE_NAME=demo\nNETWORK=devnet\n');
+    // …then saveAgentCardLocally upserting AGENT_CARD_PATH afterwards.
+    upsertEnvVar(filePath, 'AGENT_CARD_PATH', './agent-card.json');
+    const content = readFileSync(filePath, 'utf8');
+    expect(content).toContain('ORACLE_NAME=demo');
+    expect(content).toContain('NETWORK=devnet');
+    expect(content).toContain('AGENT_CARD_PATH=./agent-card.json');
+  });
+});

@@ -6,7 +6,7 @@ import path from 'path';
 import agentCardSchemaSnapshot from '../schemas/agent-card-schema.json';
 import { checkRequiredString, EVAL_ENGINE_URL } from './common';
 import { upsertEnvVar } from './env-file';
-import { PLUGIN_CATALOG } from './plugin-catalog';
+import { deriveServiceId } from './service-id';
 
 /** The developer's local, versioned copy of the published card. */
 export const AGENT_CARD_FILENAME = 'agent-card.json';
@@ -48,19 +48,6 @@ export interface AgentCard {
     version: string;
     services: AgentCardService[];
   };
-}
-
-/**
- * A suggested service prefill. Seeds only prefill the prompts — the developer
- * confirms/edits every field before anything is published (the CLI never
- * publishes generated sentences unseen).
- */
-export interface AgentCardServiceSeed {
-  /** Where this suggestion came from — shown in the confirm prompt. */
-  source: string;
-  id?: string;
-  name?: string;
-  description?: string;
 }
 
 /** Assembles the VC envelope around the developer-authored content (spec §A.2). */
@@ -145,79 +132,36 @@ export function validateAgentCard(card: unknown, schema: Record<string, unknown>
 }
 
 /**
- * Turns the create-entity "A5" inputs into service seeds: one per selected
- * plugin (name/description from the plugin catalog) plus one from the
- * free-text capabilities description when given.
+ * Interactive service builder. Prompts for services until the developer leaves
+ * the "next service name" blank. Always returns at least one service (the schema
+ * requires it) and never more than MAX_SERVICES.
  */
-export function buildAgentCardSeeds({
-  skills,
-  promptCapabilities,
-}: {
-  skills: string[] | undefined;
-  promptCapabilities: string | undefined;
-}): AgentCardServiceSeed[] {
-  const seeds: AgentCardServiceSeed[] = [];
-  for (const skill of skills ?? []) {
-    const entry = PLUGIN_CATALOG.find((e) => e.value === skill);
-    seeds.push({
-      source: `plugin "${entry?.label ?? skill}"`,
-      id: skill,
-      name: entry?.label ?? skill,
-      ...(entry?.hint ? { description: entry.hint } : {}),
-    });
-  }
-  if (promptCapabilities) {
-    seeds.push({
-      source: 'your capabilities description',
-      id: 'general-assistance',
-      name: 'General assistance',
-      description: promptCapabilities,
-    });
-  }
-  return seeds;
-}
-
-/**
- * The interactive service builder: offers each seed for confirm/edit first,
- * then loops "Add another service?" for blank ones. Always returns at least
- * one service (the schema requires it) and never more than MAX_SERVICES.
- */
-export async function promptAgentCardServices(
-  seeds: AgentCardServiceSeed[] = [],
-): Promise<AgentCardService[]> {
+export async function promptAgentCardServices(): Promise<AgentCardService[]> {
   const services: AgentCardService[] = [];
 
-  for (const seed of seeds) {
-    if (services.length >= MAX_SERVICES) break;
-    const include = await p.confirm({
-      message: `Add a service seeded from ${seed.source}?`,
-      initialValue: true,
+  for (;;) {
+    const first = services.length === 0;
+    const name = await p.text({
+      message: first
+        ? 'Service name (e.g. "Expense Report"):'
+        : `Next service name (blank to finish, ${services.length}/${MAX_SERVICES}):`,
+      validate(value) {
+        if (first) return checkRequiredString(value, 'At least one service is required');
+        return undefined; // blank allowed → terminates the loop
+      },
     });
-    if (p.isCancel(include)) {
+    if (p.isCancel(name)) {
       p.cancel('Operation cancelled.');
       process.exit(0);
     }
-    if (!include) continue;
-    services.push(await promptService(services, seed));
-  }
+    if (!first && !String(name).trim()) break;
 
-  for (;;) {
+    services.push(await promptService(services, String(name).trim()));
+
     if (services.length >= MAX_SERVICES) {
       p.log.warn(`Reached the ${MAX_SERVICES}-service limit.`);
       break;
     }
-    if (services.length > 0) {
-      const more = await p.confirm({
-        message: 'Add another service?',
-        initialValue: false,
-      });
-      if (p.isCancel(more)) {
-        p.cancel('Operation cancelled.');
-        process.exit(0);
-      }
-      if (!more) break;
-    }
-    services.push(await promptService(services));
   }
 
   return services;
@@ -225,42 +169,21 @@ export async function promptAgentCardServices(
 
 async function promptService(
   existing: AgentCardService[],
-  seed?: AgentCardServiceSeed,
+  name: string,
 ): Promise<AgentCardService> {
-  p.log.step(`Service ${existing.length + 1}`);
+  p.log.step(`Service ${existing.length + 1}: ${name}`);
 
-  const seedId = seed?.id && SERVICE_ID_REGEX.test(seed.id) ? seed.id : '';
+  const id = deriveServiceId(
+    name,
+    existing.map((s) => s.id),
+  );
+  p.log.info(`Service id: ${id}`);
 
   const svc = await p.group(
     {
-      id: () =>
-        p.text({
-          message: 'Service id (slug, e.g. "expense-report"):',
-          initialValue: seedId,
-          validate(value) {
-            const required = checkRequiredString(value, 'Service id is required');
-            if (required) return required;
-            if (!SERVICE_ID_REGEX.test(value ?? '')) {
-              return 'Use a lowercase slug: letters/digits separated by dashes';
-            }
-            if (existing.some((s) => s.id === value)) {
-              return 'A service with this id is already on the card';
-            }
-            return undefined;
-          },
-        }),
-      name: () =>
-        p.text({
-          message: 'Service name:',
-          initialValue: seed?.name ?? '',
-          validate(value) {
-            return checkRequiredString(value, 'Service name is required');
-          },
-        }),
       description: () =>
         p.text({
           message: 'Service description:',
-          initialValue: seed?.description ?? '',
           validate(value) {
             return checkRequiredString(value, 'Service description is required');
           },
@@ -295,49 +218,43 @@ async function promptService(
   );
 
   const amount = Number(svc.amount);
-  p.log.info(
-    `${amount} USDC = ${(amount * CREDITS_PER_USDC).toLocaleString('en-US')} credits`,
-  );
+  p.log.info(`${amount} USDC = ${(amount * CREDITS_PER_USDC).toLocaleString('en-US')} credits`);
 
-  // doneMeans — the anti-vagueness lever: each sentence becomes a candidate
-  // AI-check instruction, at least one is required.
+  // doneMeans — first sentence required, blank Enter finishes the list.
   const doneMeans: string[] = [];
   for (;;) {
+    const first = doneMeans.length === 0;
     const line = await p.text({
-      message:
-        doneMeans.length === 0
-          ? '"Done" means — one sentence describing what done-right looks like:'
-          : `"Done" also means (sentence ${doneMeans.length + 1}):`,
+      message: first
+        ? '"Done" means — one sentence describing done-right (required):'
+        : `"Done" also means (${doneMeans.length + 1}, blank to finish):`,
       validate(value) {
-        return checkRequiredString(value, 'Sentence is required');
+        if (first) return checkRequiredString(value, 'At least one sentence is required');
+        return undefined;
       },
     });
     if (p.isCancel(line)) {
       p.cancel('Operation cancelled.');
       process.exit(0);
     }
-    doneMeans.push(line);
+    if (!first && !String(line).trim()) break;
+    doneMeans.push(String(line).trim());
     if (doneMeans.length >= MAX_DONE_MEANS) {
       p.log.warn(`Reached the ${MAX_DONE_MEANS}-sentence limit.`);
       break;
     }
-    const more = await p.confirm({
-      message: 'Add another sentence?',
-      initialValue: false,
-    });
-    if (p.isCancel(more)) {
-      p.cancel('Operation cancelled.');
-      process.exit(0);
-    }
-    if (!more) break;
   }
 
   return {
-    id: svc.id,
-    name: svc.name,
+    id,
+    name,
     description: svc.description,
     price: { amount, currency: 'USDC' },
     deliverables: svc.deliverables,
     doneMeans,
   };
 }
+
+// Re-exported so callers can import from the agent-card module; the
+// implementation lives in a clack-free module for test isolation.
+export { deriveServiceId, servicesToOffers } from './service-id';

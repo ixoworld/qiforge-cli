@@ -12,8 +12,32 @@ export type SignAndBroadcastFn = (msgs: readonly EncodeObject[], memo: string) =
 
 export const COMPOSIO_BASE_URL = 'https://composio.ixo.earth';
 
+// Pure PIN-resolution logic lives in a dependency-free module so it stays
+// unit-testable without importing this file (which pulls in ESM-only deps that
+// break the ts-jest runtime). Re-exported so runtime callers can keep importing
+// `resolveEdPinDecision` from `./composio`.
+export { resolveEdPinDecision, type EdPinDecision } from './composio-pin';
+
 const DELEGATION_TTL_SEC = 7 * 24 * 60 * 60;
 const ED_SIGNING_STATE_KEY = 'encrypted_mnemonic_ed_signing';
+
+/** True if the user's room already holds an encrypted ED signing mnemonic. */
+export async function edMnemonicExists(args: {
+  matrixHomeServerUrl: string;
+  matrixAccessToken: string;
+  matrixRoomId: string;
+}): Promise<boolean> {
+  const stateUrl = `${args.matrixHomeServerUrl}/_matrix/client/v3/rooms/${encodeURIComponent(
+    args.matrixRoomId,
+  )}/state/ixo.room.state.secure/${ED_SIGNING_STATE_KEY}`;
+  const res = await fetch(stateUrl, {
+    headers: { Authorization: `Bearer ${args.matrixAccessToken}` },
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Failed to read ED signing state from Matrix (${res.status})`);
+  const data = (await res.json()) as { encrypted_mnemonic?: string };
+  return Boolean(data.encrypted_mnemonic);
+}
 
 function decrypt(ciphertext: string, pin: string): string {
   const [ivHex, encHex] = ciphertext.split(':');

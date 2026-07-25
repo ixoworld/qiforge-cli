@@ -4,13 +4,11 @@ import { Command } from '.';
 import { CLIResult } from '../types';
 import {
   AgentCardContent,
-  buildAgentCardSeeds,
   promptAgentCardServices,
 } from '../utils/agent-card';
 import { parseCliFlags } from '../utils/cli-flags';
 import {
   checkRequiredMatrixUrl,
-  checkRequiredNumber,
   checkRequiredPin,
   checkRequiredString,
   checkRequiredURL,
@@ -60,7 +58,6 @@ export class CreateEntityCommand implements Command {
 
     // Collect all entity params — from flags or prompts
     let oracleName: string;
-    let oraclePrice: string;
     let orgName: string;
     let profileName: string;
     let logo: string;
@@ -73,18 +70,9 @@ export class CreateEntityCommand implements Command {
     let matrixHomeServerUrl: string;
     let relayerNodeDid: string;
 
-    // A5: Extended config flags
-    let model: string | undefined;
-    let skills: string[] | undefined;
-    let promptOpening: string | undefined;
-    let promptStyle: string | undefined;
-    let promptCapabilities: string | undefined;
-    let mcpServers: Array<{ url: string; name?: string; description?: string }> | undefined;
-
     if (noInteractive) {
       // Non-interactive: use flags with sensible defaults
       oracleName = flags['oracle-name'] ?? 'My oracle';
-      oraclePrice = flags.price ?? '100';
       orgName = flags['org-name'] ?? 'IXO';
       profileName = flags['oracle-name'] ?? oracleName;
       logo = flags.logo ?? `https://api.dicebear.com/8.x/bottts/svg?seed=${oracleName}`;
@@ -96,22 +84,6 @@ export class CreateEntityCommand implements Command {
       apiUrl = flags['api-url'] ?? 'http://localhost:4000';
       matrixHomeServerUrl = defaultMatrixUrl;
       relayerNodeDid = flags['relayer-node'] ?? RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
-
-      // A5 flags
-      model = flags.model;
-      if (flags.skills) {
-        skills = flags.skills.split(',').map((s: string) => s.trim());
-      }
-      promptOpening = flags['prompt-opening'];
-      promptStyle = flags['prompt-style'];
-      promptCapabilities = flags['prompt-capabilities'];
-      if (flags['mcp-servers']) {
-        try {
-          mcpServers = JSON.parse(flags['mcp-servers']);
-        } catch {
-          return { success: false, error: '--mcp-servers must be a valid JSON array' };
-        }
-      }
     } else {
       const prefilledOracleName = this.config.getValue('oracleName') as string | undefined;
       const prefilledDescription = this.config.getValue('prefillDescription') as string | undefined;
@@ -119,42 +91,28 @@ export class CreateEntityCommand implements Command {
       const isNewContext = this.config.getValue('newCommandContext') === 'true';
 
       if (isNewContext) {
-        // Fast path called from `qiforge new`: oracle name, description, and org
-        // were already collected — only ask for price; default everything else.
-        // All defaults are editable in oracle.config.json after scaffolding.
-        const priceResult = await p.text({
-          message: 'What is the price of the oracle in IXO CREDITS?',
-          initialValue: '100',
-          validate(value) {
-            return checkRequiredNumber(parseInt(value ?? ''), 'Oracle price is required and must be a number');
-          },
-        });
-        if (p.isCancel(priceResult)) {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        }
-        oraclePrice = priceResult as string;
+        // Fast path called from `qiforge new`: oracle name, description, org,
+        // and avatar were already collected — default everything else. All
+        // defaults are editable in oracle.config.json after scaffolding.
 
         // Let devs choose the relayer node (IXO default or a custom one).
         relayerNodeDid = await selectRelayerNode(currentNetwork ?? 'devnet');
 
+        const prefilledLogo = this.config.getValue('prefillLogo') as string | undefined;
+        const logoUrl =
+          prefilledLogo ?? `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(prefilledOracleName ?? 'IXO')}`;
+
         oracleName = prefilledOracleName ?? 'My Oracle';
         orgName = prefilledOrgName ?? 'IXO';
         profileName = oracleName;
-        logo = `https://api.dicebear.com/8.x/bottts/svg?seed=${oracleName}`;
-        coverImage = logo;
+        logo = logoUrl;
+        coverImage = logoUrl;
         location = 'Not specified';
         description = prefilledDescription ?? '';
         website = undefined;
         parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
         apiUrl = 'http://localhost:4000';
         matrixHomeServerUrl = defaultMatrixUrl;
-        model = 'moonshotai/kimi-k2.5';
-
-        const selectedPluginsStr = this.config.getValue('selectedPlugins') as string | undefined;
-        if (selectedPluginsStr) {
-          skills = selectedPluginsStr.split(',').filter(Boolean);
-        }
       } else {
         // Standalone `qiforge create-entity` — full interactive prompt set.
         const results = await p.group(
@@ -174,14 +132,6 @@ export class CreateEntityCommand implements Command {
                 initialValue: prefilledOracleName ?? 'My oracle',
                 validate(value) {
                   return checkRequiredString(value, 'Oracle name is required');
-                },
-              }),
-            oraclePrice: () =>
-              p.text({
-                message: 'What is the price of the oracle in IXO CREDITS?',
-                initialValue: '100',
-                validate(value) {
-                  return checkRequiredNumber(parseInt(value ?? ''), 'Oracle price is required and must be a number');
                 },
               }),
             profile: () =>
@@ -274,7 +224,6 @@ export class CreateEntityCommand implements Command {
         );
 
         oracleName = results.oracleName;
-        oraclePrice = results.oraclePrice;
         orgName = results.profile.orgName;
         profileName = results.profile.name;
         logo = results.profile.logo as string;
@@ -288,81 +237,19 @@ export class CreateEntityCommand implements Command {
 
         // Relayer node: IXO default or a custom node (verified + confirmed).
         relayerNodeDid = await selectRelayerNode(currentNetwork ?? 'devnet');
-
-        const modelChoice = await p.select({
-          message: 'Select the default LLM model (press Enter for default):',
-          options: [
-            { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', hint: 'default' },
-            { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
-            { value: 'openai/gpt-4o', label: 'GPT-4o' },
-            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-            { value: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick' },
-            { value: '__custom__', label: 'Custom model...' },
-          ],
-          initialValue: 'moonshotai/kimi-k2.5',
-        });
-
-        if (p.isCancel(modelChoice)) {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        }
-
-        if (modelChoice === '__custom__') {
-          const customModel = await p.text({
-            message: 'Enter the custom model identifier:',
-            placeholder: 'provider/model-name',
-            validate(value) {
-              return checkRequiredString(value, 'Model identifier is required');
-            },
-          });
-          if (p.isCancel(customModel)) {
-            p.cancel('Operation cancelled.');
-            process.exit(0);
-          }
-          model = customModel;
-        } else {
-          model = modelChoice;
-        }
-
-        const promptOpeningResult = await p.text({
-          message: 'Opening prompt for the oracle (optional, press Enter to skip):',
-          placeholder: 'e.g. Welcome! I can help you with...',
-        });
-        if (p.isCancel(promptOpeningResult)) {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        }
-        promptOpening = promptOpeningResult || undefined;
-
-        const promptStyleResult = await p.text({
-          message: 'Communication style (optional, press Enter to skip):',
-          placeholder: 'e.g. Friendly and concise',
-        });
-        if (p.isCancel(promptStyleResult)) {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        }
-        promptStyle = promptStyleResult || undefined;
-
-        const promptCapabilitiesResult = await p.text({
-          message: 'Capabilities description (optional, press Enter to skip):',
-          placeholder: 'e.g. I can search the web, manage tasks, and answer questions',
-        });
-        if (p.isCancel(promptCapabilitiesResult)) {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        }
-        promptCapabilities = promptCapabilitiesResult || undefined;
       }
     }
 
-    // Agent Card (optional, skippable) — seeded from the A5 inputs + selected
-    // plugins; the developer confirms/edits every service before anything is
-    // published. Skipped in non-interactive mode (seeds must never be published
-    // unseen) — use `agent-card --no-interactive --card` instead.
+    // Agent Card — mandatory for `qiforge new` (an oracle without a card cannot
+    // be contracted). Skipped only in non-interactive mode, where seeds/services
+    // must never be published unseen — use `agent-card --no-interactive --card`.
     let agentCard: AgentCardContent | undefined;
     if (noInteractive) {
       p.log.info('Skipping Agent Card in non-interactive mode — publish one later with: qiforge-cli agent-card');
+    } else if (this.config.getValue('newCommandContext') === 'true') {
+      p.log.step('Agent Card — describe the services this oracle offers');
+      const services = await promptAgentCardServices();
+      agentCard = { name: oracleName, description, version: '1.0.0', services };
     } else {
       const wantsCard = await p.confirm({
         message: 'Add an Agent Card now? (You can run `qiforge-cli agent-card` later)',
@@ -373,8 +260,7 @@ export class CreateEntityCommand implements Command {
         process.exit(0);
       }
       if (wantsCard) {
-        const seeds = buildAgentCardSeeds({ skills, promptCapabilities });
-        const services = await promptAgentCardServices(seeds);
+        const services = await promptAgentCardServices();
         agentCard = { name: oracleName, description, version: '1.0.0', services };
       }
     }
@@ -395,7 +281,6 @@ export class CreateEntityCommand implements Command {
     const did = await createEntity.execute({
       oracleConfig: {
         oracleName,
-        price: parseInt(oraclePrice),
       },
       profile: {
         orgName,
