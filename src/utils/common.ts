@@ -105,8 +105,8 @@ export const SUBSCRIPTION_API = {
  * validates against before publishing.
  */
 export const EVAL_ENGINE_URL: Record<NETWORK, string> = {
-  devnet: 'http://localhost:8787',
-  // devnet: "https://devnet.eval.ixo.earth",
+  // devnet: 'http://localhost:8787',
+  devnet: "https://devnet.eval.ixo.earth",
   testnet: 'https://testnet.eval.ixo.earth',
   mainnet: 'https://eval.ixo.earth',
 };

@@ -38,7 +38,7 @@ Turns the user's Matrix DM room into a commerce surface. The oracle runs two per
 
 Key ideas:
 
-- **Agent Card** — the signed list of services the oracle sells, anchored on its entity as the `#acard` LinkedResource. Each service has an `id`, `name`, `description`, `price` (USDC), `deliverables`, and `doneMeans` (1–10 plain sentences that become the evaluation criteria). Publish with `qiforge-cli agent-card`; it also sets `AGENT_CARD_PATH`, which self-describes the plugin manifest so the model knows its own services without a tool call.
+- **Agent Card** — the signed list of services the oracle sells, anchored on its entity as the `#acard` LinkedResource. Each service has an `id`, `name`, `description`, `price` (PAY; 1 PAY = 1 USD), `deliverables`, and `doneMeans` (1–10 plain sentences that become the evaluation criteria). Publish with `qiforge-cli agent-card`; it also sets `AGENT_CARD_PATH`, which self-describes the plugin manifest so the model knows its own services without a tool call.
 - **Contract** — the user grants an on-chain `SubmitClaimAuthorization` scoped to chosen services, with a quota of jobs and a per-job max amount. Not a subscription.
 - **Engagement** — one paid job, keyed to a Matrix thread. **Only one active per user at a time** (the chain permits one active intent per agent + claim collection).
 - **Escrow** — the service price is reserved on-chain when work starts, unconditionally. Released on delivery, cancellation, or when the grant's intent duration lapses (defaults to 1 hour).

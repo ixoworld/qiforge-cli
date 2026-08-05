@@ -147,7 +147,6 @@ qiforge-cli --init --no-interactive \
   --name my-oracle-project \
   --network devnet \
   --oracle-name "My Oracle" \
-  --price 100 \
   --api-url http://localhost:4000 \
   --pin 123456
 ```
@@ -167,7 +166,6 @@ qiforge-cli --init --no-interactive \
 qiforge-cli create-entity --no-interactive \
   --network devnet \
   --oracle-name "My Oracle" \
-  --price 100 \
   --org-name "My Org" \
   --description "Oracle description" \
   --api-url http://localhost:4000 \
@@ -181,7 +179,6 @@ qiforge-cli create-entity --no-interactive \
 | ----------------------- | ------------------------------------------------- | --------------------------------- |
 | `--network`             | Network (`devnet`, `testnet`, `mainnet`)           | `devnet`                          |
 | `--oracle-name`         | Oracle name                                        | `My oracle`                       |
-| `--price`               | Price in IXO credits                               | `100`                             |
 | `--org-name`            | Organization name                                  | `IXO`                             |
 | `--logo`                | Logo URL                                           | Auto-generated from oracle name   |
 | `--cover-image`         | Cover image URL                                    | Same as logo                      |
@@ -209,7 +206,6 @@ After entity creation, the CLI saves an `oracle.config.json` file in your projec
   "description": "Oracle description",
   "location": "New York, NY",
   "website": "",
-  "price": 100,
   "apiUrl": "http://localhost:4000",
   "network": "devnet",
   "entityDid": "did:ixo:entity:...",

@@ -134,7 +134,7 @@
             },
             "currency": {
               "type": "string",
-              "const": "USDC"
+              "const": "PAY"
             }
           },
           "required": [

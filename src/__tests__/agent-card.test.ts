@@ -36,7 +36,7 @@ const svc = (over: Partial<AgentCardService> = {}): AgentCardService => ({
   id: 'expense-report',
   name: 'Expense Report',
   description: 'Builds an expense report',
-  price: { amount: 5, currency: 'USDC' },
+  price: { amount: 5, currency: 'PAY' },
   deliverables: 'A PDF report',
   doneMeans: ['Reconciles to the ledger'],
   ...over,
@@ -57,7 +57,7 @@ describe('servicesToOffers', () => {
         priceSpecification: {
           type: 'schema:PriceSpecification',
           price: 5,
-          priceCurrency: 'USDC',
+          priceCurrency: 'PAY',
         },
         'ixo:acceptanceCriteria': ['Reconciles to the ledger'],
       },

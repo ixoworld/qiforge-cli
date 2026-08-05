@@ -44,7 +44,6 @@ Required regardless of which plugins you ship. These are validated by the runtim
 | `EVAL_ENGINE_URL` | Evaluation engine base URL. **Without it contract lookups are disabled** — nobody can start paid work. Support chat is unaffected. |
 | `AGENT_CARD_PATH` | Path to the local Agent Card copy, set by `qiforge-cli agent-card`. Seeds the card cache and derives the plugin manifest from the card. A path that is set but unreadable, malformed, or describing a different entity than `ORACLE_ENTITY_DID` fails boot. |
 | `ORACLE_PAYMENTS_ROUTER_MODEL` | Model id for the support/work classifier. Defaults to the provider's `routing` role model. |
-| `ORACLE_PAYMENTS_EXTRACTOR_MODEL` | Model id for the trusted request/work-summary extractor. Defaults to the provider's `custom_medium` role model. |
 | `ORACLE_PAYMENTS_MAX_DELIVERABLE_MB` | Size ceiling on one delivered file. Default `25`. |
 | `PORTAL_URL` | Portal base URL — when set, the delivery receipt and payment cards carry a claim deep link. |
 

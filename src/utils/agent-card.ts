@@ -15,14 +15,12 @@ const SCHEMA_FETCH_TIMEOUT_MS = 10000;
 export const MAX_SERVICES = 20;
 export const MAX_DONE_MEANS = 10;
 export const SERVICE_ID_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-/** 1 USDC = 1,000 credits — the portal's `creditsPerUsd`. */
-export const CREDITS_PER_USDC = 1000;
 
 export interface AgentCardService {
   id: string;
   name: string;
   description: string;
-  price: { amount: number; currency: 'USDC' };
+  price: { amount: number; currency: 'PAY' };
   deliverables: string;
   doneMeans: string[];
 }
@@ -190,7 +188,7 @@ async function promptService(
         }),
       amount: () =>
         p.text({
-          message: 'Price in USDC (1 USDC = 1,000 credits; 0 = free):',
+          message: 'Price in PAY (1 PAY = 1 USD; 0 = free):',
           validate(value) {
             const required = checkRequiredString(value, 'Price is required (0 = free)');
             if (required) return required;
@@ -218,7 +216,7 @@ async function promptService(
   );
 
   const amount = Number(svc.amount);
-  p.log.info(`${amount} USDC = ${(amount * CREDITS_PER_USDC).toLocaleString('en-US')} credits`);
+  p.log.info(`${amount} PAY = $${amount}`);
 
   // doneMeans — first sentence required, blank Enter finishes the list.
   const doneMeans: string[] = [];
@@ -249,7 +247,7 @@ async function promptService(
     id,
     name,
     description: svc.description,
-    price: { amount, currency: 'USDC' },
+    price: { amount, currency: 'PAY' },
     deliverables: svc.deliverables,
     doneMeans,
   };
