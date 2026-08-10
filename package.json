@@ -1,6 +1,6 @@
 {
   "name": "qiforge-cli",
-  "version": "1.3.14",
+  "version": "1.3.15",
   "description": "CLI tool for creating and managing IXO Oracle projects",
   "main": "dist/cli.js",
   "type": "module",
@@ -48,15 +48,16 @@
     "README.md"
   ],
   "dependencies": {
-    "@clack/prompts": "^1.0.1",
-    "@cosmjs/crypto": "^0.34.0",
-    "@cosmjs/encoding": "^0.34.0",
-    "@ixo/ucan": "^1.2.2",
-    "@cosmjs/proto-signing": "^0.34.0",
-    "@ixo/impactxclient-sdk": "^2.4.1",
-    "@ixo/matrixclient-sdk": "^1.0.0",
+    "@clack/prompts": "^1.7.0",
+    "@cosmjs/crypto": "^0.39.0",
+    "@cosmjs/encoding": "^0.39.0",
+    "@cosmjs/proto-signing": "^0.39.0",
+    "@ixo/impactxclient-sdk": "^3.0.1",
+    "@ixo/matrixclient-sdk": "^3.0.0",
     "@ixo/signx-sdk": "^1.2.0",
+    "@ixo/ucan": "^2.1.0",
     "@matrix-org/matrix-sdk-crypto-wasm": "^15.1.0",
+    "ajv": "^8.20.0",
     "bs58": "^6.0.0",
     "eciesjs": "^0.4.15",
     "jose": "^6.0.8",
@@ -69,7 +70,7 @@
     "zod": "^4.0.14"
   },
   "devDependencies": {
-    "@cosmjs/stargate": "0.32.4",
+    "@cosmjs/stargate": "0.39.0",
     "@types/jest": "^29.5.0",
     "@types/md5": "^2.3.5",
     "@types/node": "^22.0.0",

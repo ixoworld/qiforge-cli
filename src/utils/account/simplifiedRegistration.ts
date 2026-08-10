@@ -14,6 +14,7 @@ import {
   mxRegisterWithSecp,
   setupCrossSigning,
 } from './matrix';
+import { resolveImageToMatrixMxc } from '../matrix/upload-image';
 import { checkIidDocumentExists, createIidDocument, delay, encrypt, getSecpClient } from './utils';
 
 export interface SimplifiedRegistrationResult {
@@ -131,7 +132,22 @@ export async function registerUserSimplified(
     });
 
     try {
-      await Promise.all([mxClient.setDisplayName(oracleName), mxClient.setAvatarUrl(oracleAvatarUrl)]);
+      // Matrix profile avatars need an mxc:// URI, not an HTTP URL. Resolve the
+      // avatar (our uploaded image, or the generated fallback) to an mxc on the
+      // oracle's homeserver so the account actually shows the image we use.
+      let avatarMxc = oracleAvatarUrl;
+      try {
+        avatarMxc = await resolveImageToMatrixMxc({
+          imageUrl: oracleAvatarUrl,
+          homeServerUrl,
+          accessToken: account.accessToken,
+        });
+      } catch (avatarError) {
+        console.warn(
+          `Could not resolve avatar to an mxc URI (${avatarError instanceof Error ? avatarError.message : String(avatarError)}); setting the raw value.`,
+        );
+      }
+      await Promise.all([mxClient.setDisplayName(oracleName), mxClient.setAvatarUrl(avatarMxc)]);
     } catch (error) {
       console.error('Failed to set display name or avatar url:', error);
     }

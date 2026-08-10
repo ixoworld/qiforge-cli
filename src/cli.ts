@@ -1,9 +1,11 @@
 import { cancel, intro, isCancel, log, outro, select, spinner } from '@clack/prompts';
 import process from 'node:process';
 import { CommandRegistry } from './commands';
+import { AgentCardCommand } from './commands/agent-card.command';
 import { CreateComposioKeyCommand } from './commands/create-composio-key.command';
 import { CreateEntityCommand } from './commands/create-entity-command';
 import { CreateUserCommand } from './commands/create-user-command';
+import { DashboardAccessCommand } from './commands/dashboard-access.command';
 import { HelpCommand } from './commands/help.command';
 import { LogoutCommand } from './commands/logout.commands';
 import { NewCommand } from './commands/new.command';
@@ -35,6 +37,8 @@ class CLIManager {
     this.registry.register(new UpdateEntityCommand(this.wallet, this.config));
     this.registry.register(new UpdateDomainCommand(this.wallet, this.config));
     this.registry.register(new SetupEncryptionKeyCommand(this.wallet, this.config));
+    this.registry.register(new AgentCardCommand(this.wallet, this.config));
+    this.registry.register(new DashboardAccessCommand(this.config));
     this.registry.register(new CreateUserCommand(this.wallet, this.config));
     this.registry.register(new CreateComposioKeyCommand(this.wallet));
     this.registry.register(new LogoutCommand(this.wallet));

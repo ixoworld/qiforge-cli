@@ -33,6 +33,19 @@ Required regardless of which plugins you ship. These are validated by the runtim
 | `tasks` | `REDIS_URL` |
 | `credits` | `DISABLE_CREDITS` to opt-out |
 | `skills` | `SKILLS_API_URL` (optional) |
+| `vfs` | `VFS_MAX_READ_LINES`, `VFS_REQUEST_TIMEOUT_MS` (both optional) |
+| `oracle-payments` | see below — all optional |
+
+### `oracle-payments`
+
+| Var | What it does |
+| --- | --- |
+| `ORACLE_PAYMENTS_DISABLED` | Exactly `'true'` or `'false'`. `'true'` excludes the plugin at boot. |
+| `EVAL_ENGINE_URL` | Evaluation engine base URL. **Without it contract lookups are disabled** — nobody can start paid work. Support chat is unaffected. |
+| `AGENT_CARD_PATH` | Path to the local Agent Card copy, set by `qiforge-cli agent-card`. Seeds the card cache and derives the plugin manifest from the card. A path that is set but unreadable, malformed, or describing a different entity than `ORACLE_ENTITY_DID` fails boot. |
+| `ORACLE_PAYMENTS_ROUTER_MODEL` | Model id for the support/work classifier. Defaults to the provider's `routing` role model. |
+| `ORACLE_PAYMENTS_MAX_DELIVERABLE_MB` | Size ceiling on one delivered file. Default `25`. |
+| `PORTAL_URL` | Portal base URL — when set, the delivery receipt and payment cards carry a claim deep link. |
 
 For the full grouped list, see `https://docs.ixo.world/build-an-oracle/reference/environment-variables`.
 

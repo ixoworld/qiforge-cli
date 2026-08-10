@@ -33,15 +33,31 @@ OPTIONS:
 NEW COMMAND FLAGS (qiforge-cli new):
   --no-interactive            Skip prompts; requires --name
   --name <name>               Project / oracle name
-  --path <dir>                Target directory (default: ./\<name\>)
+  --path <dir>                Target directory (default: ./<name>)
   --template <name>           Starter template (default: basic). See src/templates/index.json
   --description <text>        One-line oracle description
   --org <name>                Organization name (default: IXO)
   --install                   Run pnpm install after scaffolding
   --force                     Overwrite an existing non-empty target dir
 
-PLUGIN NEW COMMAND FLAGS (qiforge-cli plugin new \<name\>):
+PLUGIN NEW COMMAND FLAGS (qiforge-cli plugin new <name>):
   --cwd <dir>                 Project directory (default: current working dir)
+
+AGENT CARD COMMAND FLAGS (qiforge-cli agent-card):
+  --no-interactive            Skip prompts; requires the flags below
+  --card <path>               Agent Card JSON file to validate and publish
+  --matrix-room-id <id>       Oracle Matrix room ID (derives the homeserver)
+  --matrix-access-token <t>   Oracle Matrix access token
+  --network <net>             devnet | testnet | mainnet (default: devnet)
+  --project-path <dir>        Oracle project dir to save a local copy into (sets AGENT_CARD_PATH in .env)
+
+DASHBOARD ACCESS COMMAND FLAGS (qiforge-cli dashboard-access):
+  --env <path>                Oracle project .env with SECP_MNEMONIC + Matrix creds
+  --no-interactive            Skip prompts; requires --grant, --entity-did, --env
+  --grant <did>               Console account DID to grant dashboard access to
+  --entity-did <did>          Oracle entity DID to link
+  --grant-deposit             Also authorize the account to fund performance deposits
+  --network <net>             devnet | testnet | mainnet (default: devnet)
 
 For more information, visit: https://www.npmjs.com/package/qiforge-cli
 `;

@@ -1,9 +1,8 @@
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { SimplifiedRegistrationResult } from './account/simplifiedRegistration';
+import { AgentCard } from './agent-card';
 
 interface Config {
-  authZFile: string;
-  feesFile: string;
   projectPath: string;
   projectName: string;
   entityDid: string;
@@ -16,8 +15,9 @@ interface Config {
   oracleName: string;
   prefillDescription: string;
   prefillOrgName: string;
-  selectedPlugins: string;
+  prefillLogo: string;
   newCommandContext: string;
+  agentCard: AgentCard;
 }
 
 export class RuntimeConfig {

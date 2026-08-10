@@ -99,6 +99,17 @@ export const SUBSCRIPTION_API = {
   testnet: "https://subscriptions-api-testnet.ixo-api.workers.dev/",
   mainnet: "https://subscriptions-api-mainnet.ixo-api.workers.dev/",
 };
+/**
+ * The eval-engine API, per network. Serves the canonical Agent Card JSON
+ * Schema (`GET /v1/agent-card-schema`) that the `agent-card` command
+ * validates against before publishing.
+ */
+export const EVAL_ENGINE_URL: Record<NETWORK, string> = {
+  // devnet: 'http://localhost:8787',
+  devnet: "https://devnet.eval.ixo.earth",
+  testnet: 'https://testnet.eval.ixo.earth',
+  mainnet: 'https://eval.ixo.earth',
+};
 export const checkRequiredString = (
   value: string | undefined,
   message = "This  field is required",

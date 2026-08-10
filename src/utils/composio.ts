@@ -12,8 +12,32 @@ export type SignAndBroadcastFn = (msgs: readonly EncodeObject[], memo: string) =
 
 export const COMPOSIO_BASE_URL = 'https://composio.ixo.earth';
 
+// Pure PIN-resolution logic lives in a dependency-free module so it stays
+// unit-testable without importing this file (which pulls in ESM-only deps that
+// break the ts-jest runtime). Re-exported so runtime callers can keep importing
+// `resolveEdPinDecision` from `./composio`.
+export { resolveEdPinDecision, type EdPinDecision } from './composio-pin';
+
 const DELEGATION_TTL_SEC = 7 * 24 * 60 * 60;
 const ED_SIGNING_STATE_KEY = 'encrypted_mnemonic_ed_signing';
+
+/** True if the user's room already holds an encrypted ED signing mnemonic. */
+export async function edMnemonicExists(args: {
+  matrixHomeServerUrl: string;
+  matrixAccessToken: string;
+  matrixRoomId: string;
+}): Promise<boolean> {
+  const stateUrl = `${args.matrixHomeServerUrl}/_matrix/client/v3/rooms/${encodeURIComponent(
+    args.matrixRoomId,
+  )}/state/ixo.room.state.secure/${ED_SIGNING_STATE_KEY}`;
+  const res = await fetch(stateUrl, {
+    headers: { Authorization: `Bearer ${args.matrixAccessToken}` },
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Failed to read ED signing state from Matrix (${res.status})`);
+  const data = (await res.json()) as { encrypted_mnemonic?: string };
+  return Boolean(data.encrypted_mnemonic);
+}
 
 function decrypt(ciphertext: string, pin: string): string {
   const [ivHex, encHex] = ciphertext.split(':');
@@ -27,17 +51,21 @@ function decrypt(ciphertext: string, pin: string): string {
   return dec.toString('utf8');
 }
 
-export async function fetchOrCreateEdMnemonic({
-  matrixHomeServerUrl,
-  matrixAccessToken,
-  matrixRoomId,
-  pin,
-}: {
-  matrixHomeServerUrl: string;
-  matrixAccessToken: string;
-  matrixRoomId: string;
-  pin: string;
-}): Promise<string> {
+export async function fetchOrCreateEdMnemonic(
+  {
+    matrixHomeServerUrl,
+    matrixAccessToken,
+    matrixRoomId,
+    pin,
+  }: {
+    matrixHomeServerUrl: string;
+    matrixAccessToken: string;
+    matrixRoomId: string;
+    pin: string;
+  },
+  options: { allowCreate?: boolean } = {},
+): Promise<string> {
+  const { allowCreate = true } = options;
   const stateUrl = `${matrixHomeServerUrl}/_matrix/client/v3/rooms/${encodeURIComponent(
     matrixRoomId
   )}/state/ixo.room.state.secure/${ED_SIGNING_STATE_KEY}`;
@@ -62,7 +90,13 @@ export async function fetchOrCreateEdMnemonic({
     throw new Error(`Failed to read ED signing mnemonic from Matrix (${res.status})`);
   }
 
-  // Not found — generate and store a new one
+  // Not found — generate and store a new one (unless the caller needs the
+  // runtime-provisioned key and a fresh one would be useless, e.g. dashboard-access)
+  if (!allowCreate) {
+    throw new Error(
+      "No claim-signing key found in this oracle's Matrix room — run the oracle once (pnpm dev) so the runtime provisions it, then retry.",
+    );
+  }
   const edMnemonic = utils.mnemonic.generateMnemonic(12);
   const stored = await fetch(stateUrl, {
     method: 'PUT',

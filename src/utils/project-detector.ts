@@ -17,7 +17,7 @@ export function detectOracleProject(startDir: string): DetectedProject {
   let dir = path.resolve(startDir);
   const root = path.parse(dir).root;
 
-  while (true) {
+  for (;;) {
     const pkgPath = path.join(dir, 'package.json');
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;

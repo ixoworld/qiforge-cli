@@ -11,6 +11,14 @@ import {
   SimplifiedRegistrationResult,
 } from "./account/simplifiedRegistration";
 import {
+  AgentCardContent,
+  AgentCardService,
+  buildAgentCard,
+  fetchAgentCardSchema,
+  servicesToOffers,
+  validateAgentCard,
+} from "./agent-card";
+import {
   checkRequiredPin,
   DOMAIN_INDEXER_URL,
   RELAYER_NODE_DID,
@@ -38,15 +46,13 @@ interface CreateEntityParams {
   parentProtocol: string;
   oracleConfig: {
     oracleName: string;
-    price: number;
   };
   matrixHomeServerUrl: string;
   relayerNodeDid?: string;
   pin?: string;
+  /** Optional Agent Card content — confirmed by the developer beforehand. */
+  agentCard?: AgentCardContent;
 }
-type Denom =
-  | "uixo"
-  | "ibc/6BBE9BD4246F8E04948D5A4EEE7164B2630263B9EBB5E7DC5F0A46C62A2FF97B";
 
 export class CreateEntity {
   private readonly wallet: Wallet;
@@ -186,73 +192,6 @@ export class CreateEntity {
     });
   }
 
-  private async createFeesConfig({
-    entityDid,
-    price,
-    denom,
-    homeServerUrl,
-    accessToken,
-  }: {
-    entityDid: string;
-    price: number;
-    denom: Denom;
-    homeServerUrl: string;
-    accessToken: string;
-  }): Promise<LinkedResource> {
-    const config = {
-      "@context": [
-        "https://schema.org",
-        {
-          ixo: "https://w3id.org/ixo/context/v1",
-          oracle: {
-            "@id": entityDid,
-            "@type": "@id",
-          },
-        },
-      ],
-      "@type": "Service",
-      "@id": "oracle:ServiceFeeModel",
-      name: "Pricing",
-      description: "Pricing",
-      serviceType: "",
-      offers: {
-        "@type": "Offer",
-        priceCurrency: denom,
-        priceSpecification: {
-          "@type": "PaymentChargeSpecification",
-          priceCurrency: denom,
-          price: price * 1000, // 1 credit is 1000 uixo
-          unitCode: "MON",
-          billingIncrement: 1,
-          billingPeriod: "P1M",
-          priceType: "Subscription",
-          maxPrice: price,
-        },
-        eligibleQuantity: {
-          "@type": "QuantitativeValue",
-          value: 1,
-          unitCode: "MON",
-        },
-      },
-    };
-    const response = await publicUpload({
-      data: config,
-      fileName: "fees",
-      homeServerUrl,
-      accessToken,
-    });
-    return ixo.iid.v1beta1.LinkedResource.fromPartial({
-      id: "{id}#fee",
-      type: "pricingList",
-      proof: response.proof,
-      right: "",
-      encrypted: "false",
-      mediaType: "application/json",
-      description: "Pricing List",
-      serviceEndpoint: response.serviceEndpoint,
-    });
-  }
-
   /**
    * Update the oracle domain (API URL) services on an existing entity.
    * Deletes the old #api and #ws services, then adds new ones with the updated URL.
@@ -346,11 +285,11 @@ export class CreateEntity {
   private async createOracleConfigFiles({
     oracleName,
     entityDid,
-    price,
     oracleAccountAddress,
     homeServerUrl,
     accessToken,
-  }: CreateEntityParams["oracleConfig"] & {
+  }: {
+    oracleName: string;
     entityDid: string;
     oracleAccountAddress: string;
     homeServerUrl: string;
@@ -367,16 +306,6 @@ export class CreateEntity {
         oracleName,
         entityDid,
         oracleAccountAddress,
-        homeServerUrl,
-        accessToken,
-      }),
-      this.createFeesConfig({
-        entityDid,
-        price,
-        denom:
-          this.config.getValue("network") === "devnet"
-            ? "uixo"
-            : "ibc/6BBE9BD4246F8E04948D5A4EEE7164B2630263B9EBB5E7DC5F0A46C62A2FF97B",
         homeServerUrl,
         accessToken,
       }),
@@ -408,11 +337,13 @@ export class CreateEntity {
     entityDid,
     homeServerUrl,
     accessToken,
+    services,
   }: {
     profile: CreateEntityParams["profile"];
     entityDid: string;
     homeServerUrl: string;
     accessToken: string;
+    services?: AgentCardService[];
   }): Promise<LinkedResource> {
     const validFrom = new Date().toISOString();
 
@@ -470,6 +401,9 @@ export class CreateEntity {
           addressLocality: profile.location,
         },
         ...(profile.url ? { url: profile.url } : {}),
+        ...(services && services.length > 0
+          ? { makesOffer: servicesToOffers(services) }
+          : {}),
       },
     };
 
@@ -488,6 +422,54 @@ export class CreateEntity {
       encrypted: "false",
       mediaType: "application/json",
       description: "Domain Card",
+      serviceEndpoint: response.serviceEndpoint,
+    });
+  }
+
+  private async createAgentCard({
+    agentCard,
+    entityDid,
+    homeServerUrl,
+    accessToken,
+  }: {
+    agentCard: AgentCardContent;
+    entityDid: string;
+    homeServerUrl: string;
+    accessToken: string;
+  }): Promise<LinkedResource> {
+    const card = buildAgentCard({
+      entityDid,
+      issuerDid: this.wallet.did!,
+      ...agentCard,
+    });
+    this.config.addValue("agentCard", card);
+
+    // Validate against the engine's schema (or the bundled snapshot) before
+    // anything touches Matrix/chain — same lane as the `agent-card` command.
+    const network = (this.config.getValue("network") as NETWORK) ?? "devnet";
+    const { schema } = await fetchAgentCardSchema(network);
+    const errors = validateAgentCard(card, schema);
+    if (errors.length > 0) {
+      throw new Error(
+        `Agent Card failed schema validation:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+      );
+    }
+
+    const response = await publicUpload({
+      data: card,
+      fileName: "agentCard",
+      homeServerUrl,
+      accessToken,
+    });
+
+    return ixo.iid.v1beta1.LinkedResource.fromPartial({
+      id: "{id}#acard",
+      type: "agentCard",
+      proof: response.proof,
+      right: "",
+      encrypted: "false",
+      mediaType: "application/json",
+      description: "Agent Card",
       serviceEndpoint: response.serviceEndpoint,
     });
   }
@@ -696,6 +678,9 @@ export class CreateEntity {
       entityDid: did,
       homeServerUrl: oracleHomeServerUrl,
       accessToken: oracleAccessToken,
+      ...(params.agentCard?.services
+        ? { services: params.agentCard.services }
+        : {}),
     });
 
     // Add domain card to entity
@@ -722,11 +707,51 @@ export class CreateEntity {
     }
 
     // =================================================================================================
+    // 4.5. CREATE AND ATTACH AGENT CARD (optional) using oracle's credentials
+    // =================================================================================================
+    if (params.agentCard && this.wallet.wallet?.address) {
+      try {
+        log.info("Creating agent card");
+        const agentCardResource = await this.createAgentCard({
+          agentCard: params.agentCard,
+          entityDid: did,
+          homeServerUrl: oracleHomeServerUrl,
+          accessToken: oracleAccessToken,
+        });
+
+        const addAgentCardMsg = {
+          typeUrl: "/ixo.iid.v1beta1.MsgAddLinkedResource",
+          value: ixo.iid.v1beta1.MsgAddLinkedResource.fromPartial({
+            id: did,
+            linkedResource: ixo.iid.v1beta1.LinkedResource.fromPartial({
+              id: agentCardResource.id,
+              description: agentCardResource.description,
+              type: agentCardResource.type,
+              proof: agentCardResource.proof,
+              mediaType: agentCardResource.mediaType,
+              encrypted: agentCardResource.encrypted,
+              serviceEndpoint: agentCardResource.serviceEndpoint,
+            }),
+            signer: this.wallet.wallet.address,
+          }),
+        };
+        log.info("Sign to add agent card to the entity");
+        await this.wallet.signAndBroadcast([addAgentCardMsg]);
+        log.success("Agent card added to entity");
+      } catch (error) {
+        // An oracle without a card is valid — it just can't be contracted yet.
+        log.warn(
+          `Failed to publish agent card: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        log.warn("You can publish it later using: qiforge-cli agent-card");
+      }
+    }
+
+    // =================================================================================================
     // 5. CREATE AND ATTACH CONFIG FILES using oracle's credentials
     // =================================================================================================
     await this.createOracleConfigFiles({
       oracleName: params.oracleConfig.oracleName,
-      price: params.oracleConfig.price,
       oracleAccountAddress: registerResult.address,
       entityDid: did,
       homeServerUrl: oracleHomeServerUrl,

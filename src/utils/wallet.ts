@@ -112,6 +112,17 @@ export class Wallet {
     return this.wallet?.did;
   }
 
+  get edKeyPin(): string | undefined {
+    return this.wallet?.edKeyPin;
+  }
+
+  /** Persists the user's ED signing-key PIN into ~/.wallet.json. */
+  public persistEdKeyPin(pin: string): void {
+    if (!this.wallet) return;
+    this.wallet.edKeyPin = pin;
+    this.setWallet(this.wallet);
+  }
+
   get address() {
     return this.wallet?.address;
   }

@@ -1,3 +1,4 @@
+import * as p from '@clack/prompts';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import fs from 'fs';
 import path from 'path';
@@ -12,7 +13,13 @@ import {
   SANDBOX_API,
   SUBSCRIPTION_API,
 } from './common';
-import { COMPOSIO_BASE_URL, createComposioApiKey, fetchOrCreateEdMnemonic } from './composio';
+import {
+  COMPOSIO_BASE_URL,
+  createComposioApiKey,
+  edMnemonicExists,
+  fetchOrCreateEdMnemonic,
+  resolveEdPinDecision,
+} from './composio';
 import { RuntimeConfig } from './runtime-config';
 import { Wallet } from './wallet';
 
@@ -211,12 +218,43 @@ export const createProjectEnvFile = async (config: RuntimeConfig, wallet: Wallet
     // stored token doesn't break the room-state read/write below.
     const userMatrixAccessToken = await wallet.getFreshMatrixAccessToken();
 
+    const blobExists = await edMnemonicExists({
+      matrixHomeServerUrl: userMatrixHomeServer,
+      matrixAccessToken: userMatrixAccessToken,
+      matrixRoomId: userMatrix.roomId,
+    });
+
+    const decision = resolveEdPinDecision({
+      storedPin: wallet.edKeyPin,
+      blobExists,
+    });
+
+    let edPin: string;
+    let persistPin = false;
+    if ('pin' in decision) {
+      edPin = decision.pin;
+    } else if ('useOraclePin' in decision) {
+      edPin = regResult.pin;
+      persistPin = true;
+    } else {
+      const entered = await p.password({
+        message: 'PIN that unlocks your Composio signing key (from your first project):',
+      });
+      if (p.isCancel(entered)) {
+        throw new Error('Composio signing-key PIN entry cancelled');
+      }
+      edPin = String(entered);
+      persistPin = true;
+    }
+
     const edMnemonic = await fetchOrCreateEdMnemonic({
       matrixHomeServerUrl: userMatrixHomeServer,
       matrixAccessToken: userMatrixAccessToken,
       matrixRoomId: userMatrix.roomId,
-      pin: regResult.pin,
+      pin: edPin,
     });
+
+    if (persistPin) wallet.persistEdKeyPin(edPin);
 
     composioApiKey = await createComposioApiKey({
       userDid: wallet.did,
@@ -230,7 +268,16 @@ export const createProjectEnvFile = async (config: RuntimeConfig, wallet: Wallet
     console.log('✅ Composio API key created');
     console.log(`💡 Manage your Composio API keys at ${COMPOSIO_BASE_URL}`);
   } catch (err) {
-    console.warn(`⚠️  Could not create Composio API key (${(err as Error).message}). Set COMPOSIO_API_KEY manually.`);
+    const message = (err as Error).message ?? String(err);
+    const reason = /decrypt/i.test(message)
+      ? 'wrong PIN for your Composio signing key'
+      : /subscription|402/i.test(message)
+        ? 'no active subscription for this network'
+        : message;
+    console.warn('⚠  Composio API key not created');
+    console.warn(`   reason: ${reason}`);
+    console.warn('   fix:    qiforge-cli create-composio-key');
+    console.warn('   (everything else in your project is set up)');
   }
 
   // Write main .env with full values for the current network

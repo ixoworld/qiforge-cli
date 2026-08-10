@@ -1,68 +1,25 @@
 import * as p from '@clack/prompts';
+import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { spawn } from 'child_process';
 import { existsSync, readdirSync, rmSync } from 'fs';
 import path from 'path';
 import { Command } from '.';
 import { CLIResult } from '../types';
+import { AgentCard, saveAgentCardLocally } from '../utils/agent-card';
 import { parseCliFlags } from '../utils/cli-flags';
+import { checkRequiredURL } from '../utils/common';
 import { createProjectEnvFile } from '../utils/create-project-env-file';
+import {
+  imageContentType,
+  SUPPORTED_IMAGE_EXTENSIONS,
+  uploadImageToMatrix,
+} from '../utils/matrix/upload-image';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { findTemplate, loadTemplateCatalog, type TemplateEntry } from '../utils/template-catalog';
 import { renderTemplate } from '../utils/template-renderer';
 import { getTemplatesDir } from '../utils/templates-dir';
 import { Wallet } from '../utils/wallet';
 import { CreateEntityCommand } from './create-entity-command';
-
-interface PluginEntry {
-  value: string;
-  label: string;
-  hint: string;
-  envVars: string[];
-}
-
-const PLUGIN_CATALOG: PluginEntry[] = [
-  {
-    value: 'memory',
-    label: 'Memory',
-    hint: 'Long-term memory — remembers context across sessions',
-    envVars: ['MEMORY_ENGINE_URL', 'MEMORY_MCP_URL'],
-  },
-  { value: 'sandbox', label: 'Sandbox', hint: 'Sandboxed code execution and file tools', envVars: ['SANDBOX_MCP_URL'] },
-  {
-    value: 'skills',
-    label: 'Skills',
-    hint: 'Discover and invoke AI agent skills from the skills registry',
-    envVars: ['SKILLS_CAPSULES_BASE_URL'],
-  },
-  {
-    value: 'composio',
-    label: 'Composio',
-    hint: '250+ integrations — Slack, GitHub, Gmail, Notion, and more',
-    envVars: ['COMPOSIO_API_KEY'],
-  },
-  {
-    value: 'firecrawl',
-    label: 'Firecrawl',
-    hint: 'Web scraping, crawling, and real-time search',
-    envVars: ['FIRECRAWL_API_KEY'],
-  },
-  {
-    value: 'domain-indexer',
-    label: 'Domain Indexer',
-    hint: 'Index and search IXO entities on-chain',
-    envVars: ['DOMAIN_INDEXER_URL'],
-  },
-  {
-    value: 'user-preferences',
-    label: 'User Preferences',
-    hint: 'Persist per-user settings across sessions',
-    envVars: [],
-  },
-  { value: 'portal', label: 'Portal', hint: 'IXO portal integration for claims and projects', envVars: [] },
-  { value: 'credits', label: 'Credits', hint: 'Token-based usage credits and rate limiting', envVars: ['REDIS_URL'] },
-];
-
-const BASE_BUNDLE = ['memory', 'sandbox'];
 
 /**
  * `qiforge new <name>` — scaffolds a standalone oracle from bundled code
@@ -138,6 +95,73 @@ export class NewCommand implements Command {
     return String(org) || 'IXO';
   }
 
+  private async getAvatarUrl(name: string): Promise<string> {
+    const fallback = `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(name)}`;
+    const answer = await p.text({
+      message: 'Avatar — paste an image URL, or a path to a local image to upload (blank for a generated one):',
+      placeholder: fallback,
+      validate(value) {
+        if (!value) return undefined; // blank → generated fallback
+        if (isRemoteUrl(value)) return checkRequiredURL(value, 'Avatar must be a valid URL');
+        // Treat anything else as a local path — must exist and be a supported image.
+        const resolved = path.resolve(value);
+        if (!existsSync(resolved)) return `No file at "${resolved}" (and it is not a URL)`;
+        if (!imageContentType(resolved)) {
+          return `Unsupported image type. Use one of: ${SUPPORTED_IMAGE_EXTENSIONS.join(', ')}`;
+        }
+        return undefined;
+      },
+    });
+    if (p.isCancel(answer)) {
+      p.cancel('Operation cancelled.');
+      process.exit(0);
+    }
+
+    const value = String(answer).trim();
+    if (!value) return fallback;
+    if (isRemoteUrl(value)) return value;
+
+    // Local path → upload to Matrix (public media) using the logged-in user's
+    // account, and use the returned public HTTP URL as the avatar.
+    const resolved = path.resolve(value);
+    const homeServerUrl = this.wallet.matrixHomeServer;
+    if (!homeServerUrl) {
+      p.log.warn('No Matrix account available to upload the image — using a generated avatar instead.');
+      return fallback;
+    }
+    const s = p.spinner();
+    s.start('Uploading avatar to Matrix…');
+    try {
+      const accessToken = await this.wallet.getFreshMatrixAccessToken();
+      const uploadedUrl = await uploadImageToMatrix({ filePath: resolved, homeServerUrl, accessToken });
+      s.stop(`Avatar uploaded: ${uploadedUrl}`);
+      return uploadedUrl;
+    } catch (err) {
+      s.stop('Avatar upload failed');
+      p.log.warn(
+        `Could not upload the image (${err instanceof Error ? err.message : String(err)}). Using a generated avatar instead.`,
+      );
+      return fallback;
+    }
+  }
+
+  private async getNetwork(): Promise<NETWORK> {
+    const choice = await p.select({
+      message: 'Which network is this oracle for?',
+      options: [
+        { value: 'devnet', label: 'Devnet', hint: 'default' },
+        { value: 'testnet', label: 'Testnet' },
+        { value: 'mainnet', label: 'Mainnet' },
+      ],
+      initialValue: 'devnet',
+    });
+    if (p.isCancel(choice)) {
+      p.cancel('Operation cancelled.');
+      process.exit(0);
+    }
+    return choice as NETWORK;
+  }
+
   private async confirmOverwrite(projectPath: string): Promise<boolean> {
     const answer = await p.confirm({
       message: `"${projectPath}" already exists and is non-empty. Overwrite?`,
@@ -160,24 +184,6 @@ export class NewCommand implements Command {
       process.exit(0);
     }
     return Boolean(answer);
-  }
-
-  private async pickPlugins(): Promise<string[]> {
-    const selection = await p.multiselect({
-      message: 'Select plugins to enable (memory + sandbox are included by default, Space to toggle):',
-      options: PLUGIN_CATALOG.map((entry) => ({
-        value: entry.value,
-        label: entry.label,
-        hint: entry.hint,
-      })),
-      initialValues: BASE_BUNDLE,
-      required: false,
-    });
-    if (p.isCancel(selection)) {
-      p.cancel('Operation cancelled.');
-      process.exit(0);
-    }
-    return selection as string[];
   }
 
   /**
@@ -233,7 +239,6 @@ export class NewCommand implements Command {
       let org: string;
       let install: boolean;
       let template: TemplateEntry;
-      let selectedPlugins: string[];
 
       if (noInteractive && flags.name) {
         projectName = flags.name;
@@ -242,12 +247,6 @@ export class NewCommand implements Command {
         org = flags.org ?? 'IXO';
         install = flags.install === 'true';
         template = findTemplate(catalog, flags.template ?? 'basic');
-        selectedPlugins = flags.plugins
-          ? flags.plugins
-              .split(',')
-              .map((s: string) => s.trim())
-              .filter(Boolean)
-          : BASE_BUNDLE;
 
         if (!isValidProjectName(projectName)) {
           return { success: false, error: `Invalid project name: ${projectName}` };
@@ -258,6 +257,12 @@ export class NewCommand implements Command {
             error: `Directory "${projectPath}" already exists. Use --force to overwrite.`,
           };
         }
+
+        this.config.addValue('network', (flags.network as NETWORK) ?? 'devnet');
+        this.config.addValue(
+          'prefillLogo',
+          flags.logo ?? `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(projectName)}`
+        );
       } else {
         const input = await this.getProjectInput();
         projectPath = input.projectPath;
@@ -274,8 +279,12 @@ export class NewCommand implements Command {
 
         description = await this.getDescription();
         org = await this.getOrg();
+        const avatarUrl = await this.getAvatarUrl(projectName);
+        const chosenNetwork = await this.getNetwork();
         install = await this.confirmInstall();
-        selectedPlugins = await this.pickPlugins();
+
+        this.config.addValue('prefillLogo', avatarUrl);
+        this.config.addValue('network', chosenNetwork);
       }
 
       this.config.addValue('projectPath', projectPath);
@@ -285,7 +294,6 @@ export class NewCommand implements Command {
       this.config.addValue('oracleName', projectName);
       this.config.addValue('prefillDescription', description);
       this.config.addValue('prefillOrgName', org);
-      this.config.addValue('selectedPlugins', selectedPlugins.join(','));
       this.config.addValue('newCommandContext', 'true');
 
       const runtimeVersion = await resolveRuntimeVersionRange();
@@ -304,7 +312,7 @@ export class NewCommand implements Command {
             name: projectName,
             org,
             description,
-            network: 'devnet',
+            network: (this.config.getValue('network') as NETWORK) ?? 'devnet',
             runtimeVersion,
           },
           overwrite: true,
@@ -326,6 +334,17 @@ export class NewCommand implements Command {
 
       await createProjectEnvFile(this.config, this.wallet);
 
+      const publishedCard = this.config.getValue('agentCard') as AgentCard | undefined;
+      if (publishedCard) {
+        try {
+          const cardPath = saveAgentCardLocally(projectPath, publishedCard);
+          p.log.success(`Agent Card saved locally at ${cardPath}`);
+        } catch (err) {
+          // The card is already on-chain; a local-save miss is not fatal.
+          p.log.warn(`Could not save a local Agent Card copy: ${(err as Error).message}`);
+        }
+      }
+
       if (install) {
         const installSpinner = p.spinner();
         installSpinner.start('Running pnpm install…');
@@ -340,20 +359,8 @@ export class NewCommand implements Command {
 
       const relPath = path.relative(process.cwd(), projectPath) || projectName;
 
-      const pluginEnvHints = selectedPlugins
-        .flatMap((name) => PLUGIN_CATALOG.find((entry) => entry.value === name)?.envVars ?? [])
-        .filter((v, i, arr) => arr.indexOf(v) === i); // dedupe (e.g. REDIS_URL shared)
-
-      const pluginHintBlock =
-        pluginEnvHints.length > 0
-          ? `\n📦 Fill in these env vars in .env for your selected plugins:\n` +
-            pluginEnvHints.map((v) => `   ${v}=`).join('\n') +
-            '\n'
-          : '';
-
       p.log.success(
         `\n✅ Oracle "${projectName}" scaffolded at ${projectPath}\n` +
-          pluginHintBlock +
           `\n🚀 Next steps:\n` +
           `   cd ${relPath}\n` +
           (install ? '' : '   pnpm install\n') +
@@ -371,6 +378,12 @@ export class NewCommand implements Command {
       };
     }
   }
+}
+
+/** True for values that are already hosted URLs (http/https/mxc) — anything
+ *  else the avatar prompt treats as a local file path to upload. */
+function isRemoteUrl(value: string): boolean {
+  return /^(https?:\/\/|mxc:\/\/)/i.test(value.trim());
 }
 
 function isValidProjectName(name: string): boolean {
