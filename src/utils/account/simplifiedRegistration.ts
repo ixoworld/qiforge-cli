@@ -15,6 +15,8 @@ import {
   setupCrossSigning,
 } from './matrix';
 import { resolveImageToMatrixMxc } from '../matrix/upload-image';
+import { signingPublicKeyFromMnemonic } from './signing-key';
+import { buildSigningKeyVerification, ensureSigningKeyOnChain, storeSigningMnemonic } from './signing-key-provision';
 import { checkIidDocumentExists, createIidDocument, delay, encrypt, getSecpClient } from './utils';
 
 export interface SimplifiedRegistrationResult {
@@ -30,12 +32,19 @@ export interface SimplifiedRegistrationResult {
   matrixHomeServerUrl: string;
   pin: string;
   matrixDeviceName: string;
+  /**
+   * Ed25519 mnemonic the oracle signs UCAN invocations with. Its public key
+   * is on the oracle's DID document and it is stored PIN-encrypted in the
+   * account room (`encrypted_mnemonic_ed_signing`), where the runtime reads it.
+   */
+  signingMnemonic: string;
 }
 
 const DEVICE_NAME = 'Oracles CLI';
 /**
  * Simplified user registration flow without email verification or passkey authentication
- * Includes: wallet creation, DID creation, Matrix account with secp auth, Matrix room setup, encrypted mnemonic storage
+ * Includes: wallet creation, DID creation (with the Ed25519 UCAN signing key), Matrix account with secp auth,
+ * Matrix room setup, encrypted mnemonic storage (Matrix mnemonic and UCAN signing mnemonic)
  * @param pin - User PIN for encrypting Matrix mnemonic
  * @param matrixHomeServerUrl - The Matrix homeserver URL to use for registration
  * @returns Registration result with wallet and Matrix account details
@@ -70,6 +79,12 @@ export async function registerUserSimplified(
     const address = wallet.baseAccount.address;
     console.log('✅ Wallet created:', address);
 
+    // The Ed25519 key the Workers runtime signs UCAN invocations with. Its
+    // public key goes on the DID document at creation; the mnemonic goes into
+    // the account room once the room exists (step 6).
+    const signingMnemonic = utils.mnemonic.generateMnemonic();
+    const signingPublicKey = signingPublicKeyFromMnemonic(signingMnemonic);
+
     //  transfer tokens
     await transferTokens(address);
 
@@ -86,7 +101,9 @@ export async function registerUserSimplified(
         type: 'MatrixHomeServer',
         serviceEndpoint: homeServerUrl,
       });
-      await createIidDocument(did, network, wallet, [matrixService]);
+      await createIidDocument(did, network, wallet, [matrixService], [
+        buildSigningKeyVerification(did, signingPublicKey),
+      ]);
       console.log('✅ DID created, waiting 500ms...');
       await delay(500);
       console.log('✅ Checking if DID exists...');
@@ -95,7 +112,15 @@ export async function registerUserSimplified(
         throw new Error('Failed to create DID document');
       }
     }
+    // A document that already existed (a retried run) gets the key added.
+    const signingKeyStatus = await ensureSigningKeyOnChain({
+      did,
+      signingMnemonic,
+      oracleSigner: wallet,
+      network,
+    });
     console.log('✅ DID created:', did);
+    console.log(`✅ Ed25519 UCAN signing key ${signingKeyStatus === 'added' ? 'added to' : 'on'} the DID document`);
 
     // =================================================================================================
     // 3. MATRIX ACCOUNT CREATION
@@ -239,6 +264,15 @@ export async function registerUserSimplified(
     await storeEncryptedMnemonicResponse.json();
     console.log('✅ Encrypted Matrix mnemonic stored in room');
 
+    await storeSigningMnemonic({
+      homeServerUrl,
+      accessToken: account.accessToken,
+      roomId,
+      mnemonic: signingMnemonic,
+      pin,
+    });
+    console.log('✅ Encrypted UCAN signing mnemonic stored in room');
+
     // =================================================================================================
     // 7. STOP MATRIX CLIENT (but do NOT logout — access token is needed for subsequent uploads)
     // The caller is responsible for logging out when done with the oracle's credentials.
@@ -261,6 +295,7 @@ export async function registerUserSimplified(
       matrixHomeServerUrl: homeServerUrl,
       pin: pin,
       matrixDeviceName: DEVICE_NAME,
+      signingMnemonic,
     };
   } catch (error) {
     console.error('Simplified registration failed:', error);

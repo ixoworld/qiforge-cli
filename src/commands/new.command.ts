@@ -8,23 +8,38 @@ import { CLIResult } from '../types';
 import { AgentCard, saveAgentCardLocally } from '../utils/agent-card';
 import { parseCliFlags } from '../utils/cli-flags';
 import { checkRequiredURL } from '../utils/common';
-import { createProjectEnvFile } from '../utils/create-project-env-file';
 import {
   imageContentType,
   SUPPORTED_IMAGE_EXTENSIONS,
   uploadImageToMatrix,
 } from '../utils/matrix/upload-image';
+import {
+  buildProjectTemplateVars,
+  CREDENTIALS_FILENAME,
+  DEV_VARS_FILENAME,
+  generateRateLimitNamespaceId,
+  type OracleIdentityVars,
+  placeholderIdentity,
+  WRANGLER_CONFIG_TEMPLATES,
+} from '../utils/oracle-project';
+import { writeProvisionedProjectFiles } from '../utils/provisioned-project-files';
 import { RuntimeConfig } from '../utils/runtime-config';
+import { resolveScaffoldVersions, RUNTIME_PACKAGE } from '../utils/runtime-versions';
 import { findTemplate, loadTemplateCatalog, type TemplateEntry } from '../utils/template-catalog';
-import { renderTemplate } from '../utils/template-renderer';
+import { renderTemplate, renderTemplateFile } from '../utils/template-renderer';
 import { getTemplatesDir } from '../utils/templates-dir';
 import { Wallet } from '../utils/wallet';
 import { CreateEntityCommand } from './create-entity-command';
 
 /**
- * `qiforge new <name>` — scaffolds a standalone oracle from bundled code
- * templates (no git clone). Optionally runs `pnpm install` and provisions
- * an oracle entity + Matrix account.
+ * `qiforge new <name>` — scaffolds a Cloudflare Workers oracle
+ * (`@ixo/oracle-runtime-workers`) from the bundled code template (no git
+ * clone), provisions its on-chain entity, DID (with the Ed25519 UCAN signing
+ * key) and Matrix account, and writes the provisioned identity into the
+ * project's wrangler configs and `.dev.vars`. Optionally runs `pnpm install`.
+ *
+ * `--skip-entity` scaffolds without provisioning (no login, nothing on chain
+ * or Matrix): the wrangler configs then carry placeholder identity values.
  */
 export class NewCommand implements Command {
   name = 'new';
@@ -239,6 +254,9 @@ export class NewCommand implements Command {
       let org: string;
       let install: boolean;
       let template: TemplateEntry;
+      // Scaffold only: no wallet, no chain, no Matrix. The CLI entry point
+      // skips authentication for it too.
+      const skipEntity = flags['skip-entity'] === 'true';
 
       if (noInteractive && flags.name) {
         projectName = flags.name;
@@ -258,7 +276,11 @@ export class NewCommand implements Command {
           };
         }
 
-        this.config.addValue('network', (flags.network as NETWORK) ?? 'devnet');
+        const network = flags.network ?? 'devnet';
+        if (!isNetwork(network)) {
+          return { success: false, error: `Invalid --network "${network}" (devnet, testnet or mainnet)` };
+        }
+        this.config.addValue('network', network);
         this.config.addValue(
           'prefillLogo',
           flags.logo ?? `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(projectName)}`
@@ -279,7 +301,11 @@ export class NewCommand implements Command {
 
         description = await this.getDescription();
         org = await this.getOrg();
-        const avatarUrl = await this.getAvatarUrl(projectName);
+        // The avatar belongs to the entity and its Matrix account; a
+        // scaffold-only run provisions neither.
+        const avatarUrl = skipEntity
+          ? `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(projectName)}`
+          : await this.getAvatarUrl(projectName);
         const chosenNetwork = await this.getNetwork();
         install = await this.confirmInstall();
 
@@ -296,7 +322,27 @@ export class NewCommand implements Command {
       this.config.addValue('prefillOrgName', org);
       this.config.addValue('newCommandContext', 'true');
 
-      const runtimeVersion = await resolveRuntimeVersionRange();
+      const { versions, fallbackReason } = await resolveScaffoldVersions();
+      if (fallbackReason) {
+        p.log.warn(
+          `Could not read ${RUNTIME_PACKAGE} from the npm registry (${fallbackReason}); ` +
+            `pinning the versions this CLI release was tested with (runtime ${versions.runtimeVersion}).`,
+        );
+      }
+      const network = (this.config.getValue('network') as NETWORK) ?? 'devnet';
+      const templateDir = path.join(templatesDir, template.name);
+      const rateLimitNamespaceId = generateRateLimitNamespaceId();
+      const varsFor = (identity: OracleIdentityVars) =>
+        buildProjectTemplateVars({
+          projectName,
+          oracleName: projectName,
+          org,
+          description,
+          network,
+          versions,
+          identity,
+          rateLimitNamespaceId,
+        });
 
       const renderSpinner = p.spinner();
       renderSpinner.start(`Scaffolding project files (template: ${template.name})…`);
@@ -304,44 +350,54 @@ export class NewCommand implements Command {
         if (existsSync(projectPath) && isDirNonEmpty(projectPath)) {
           rmSync(projectPath, { recursive: true, force: true });
         }
-        const templateDir = path.join(templatesDir, template.name);
+        // Identity placeholders first; provisioning re-renders the wrangler
+        // configs with the real values below.
         renderTemplate({
           sourceDir: templateDir,
           targetDir: projectPath,
-          vars: {
-            name: projectName,
-            org,
-            description,
-            network: (this.config.getValue('network') as NETWORK) ?? 'devnet',
-            runtimeVersion,
-          },
+          vars: varsFor(placeholderIdentity(network)),
           overwrite: true,
         });
-        renderSpinner.stop('Project files written');
+        renderSpinner.stop(`Project files written (${RUNTIME_PACKAGE}@${versions.runtimeVersion})`);
       } catch (err) {
         renderSpinner.stop('Failed to scaffold project files');
         throw err;
       }
 
-      p.log.info('Provisioning oracle entity + Matrix account…');
-      const entityCommand = new CreateEntityCommand(this.wallet, this.config);
-      const entityResult = await entityCommand.execute();
-      if (!entityResult.success) {
-        p.log.error(`Failed to create oracle entity: ${entityResult.error ?? 'unknown error'}`);
-        throw new Error(entityResult.error ?? 'Entity creation failed');
+      if (skipEntity) {
+        p.log.warn(
+          'Skipped provisioning (--skip-entity): wrangler.jsonc and wrangler.gateway.jsonc carry placeholder ' +
+            'identity values, and there is no .dev.vars. Provision an oracle with `qiforge-cli new` ' +
+            '(without --skip-entity) or fill in the ORACLE_* / MATRIX_* vars and .dev.vars yourself.',
+        );
       }
-      p.log.success('Oracle entity + Matrix account created');
 
-      await createProjectEnvFile(this.config, this.wallet);
+      if (!skipEntity) {
+        p.log.info('Provisioning oracle entity + Matrix account…');
+        const entityCommand = new CreateEntityCommand(this.wallet, this.config);
+        const entityResult = await entityCommand.execute();
+        if (!entityResult.success) {
+          p.log.error(`Failed to create oracle entity: ${entityResult.error ?? 'unknown error'}`);
+          throw new Error(entityResult.error ?? 'Entity creation failed');
+        }
+        p.log.success('Oracle entity + Matrix account created');
 
-      const publishedCard = this.config.getValue('agentCard') as AgentCard | undefined;
-      if (publishedCard) {
-        try {
-          const cardPath = saveAgentCardLocally(projectPath, publishedCard);
-          p.log.success(`Agent Card saved locally at ${cardPath}`);
-        } catch (err) {
-          // The card is already on-chain; a local-save miss is not fatal.
-          p.log.warn(`Could not save a local Agent Card copy: ${(err as Error).message}`);
+        await writeProvisionedProjectFiles(this.config, this.wallet, (identity) => {
+          const vars = varsFor(identity);
+          for (const file of WRANGLER_CONFIG_TEMPLATES) {
+            renderTemplateFile({ sourceFile: path.join(templateDir, file), targetDir: projectPath, vars });
+          }
+        });
+
+        const publishedCard = this.config.getValue('agentCard') as AgentCard | undefined;
+        if (publishedCard) {
+          try {
+            const cardPath = saveAgentCardLocally(projectPath, publishedCard);
+            p.log.success(`Agent Card saved locally at ${cardPath}`);
+          } catch (err) {
+            // The card is already on-chain; a local-save miss is not fatal.
+            p.log.warn(`Could not save a local Agent Card copy: ${(err as Error).message}`);
+          }
         }
       }
 
@@ -364,7 +420,16 @@ export class NewCommand implements Command {
           `\n🚀 Next steps:\n` +
           `   cd ${relPath}\n` +
           (install ? '' : '   pnpm install\n') +
-          `   pnpm dev`
+          (skipEntity
+            ? `   cp .dev.vars.example ${DEV_VARS_FILENAME}   # then fill in the secrets\n`
+            : `   # add your OPEN_ROUTER_API_KEY to ${DEV_VARS_FILENAME}\n`) +
+          `   pnpm dev                          # wrangler dev, http://localhost:8787/health\n` +
+          `\n☁️  Deploy (Cloudflare Workers Paid plan):\n` +
+          `   pnpm exec wrangler login\n` +
+          `   pnpm run deploy                   # gateway script, then oracle script\n` +
+          `   # upload the secrets: see .dev.vars.example\n` +
+          `   qiforge-cli update-oracle-api-url # point the entity at the deployed URL\n` +
+          (skipEntity ? '' : `\n🔐 Back up ${CREDENTIALS_FILENAME}: it holds the oracle's wallet mnemonic.\n`),
       );
 
       return {
@@ -386,6 +451,10 @@ function isRemoteUrl(value: string): boolean {
   return /^(https?:\/\/|mxc:\/\/)/i.test(value.trim());
 }
 
+function isNetwork(value: string): value is NETWORK {
+  return value === 'devnet' || value === 'testnet' || value === 'mainnet';
+}
+
 function isValidProjectName(name: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9-_]*$/.test(name) && name.length > 0 && name.length <= 50;
 }
@@ -403,33 +472,5 @@ function isDirNonEmpty(dir: string): boolean {
     return readdirSync(dir).length > 0;
   } catch {
     return false;
-  }
-}
-
-const RUNTIME_PACKAGE = '@ixo/oracle-runtime';
-const REGISTRY_FETCH_TIMEOUT_MS = 5000;
-
-/**
- * Resolves the version range scaffolded oracles pin `@ixo/oracle-runtime` to.
- * Queries the npm registry for the current `latest` dist-tag and pins to
- * `^<version>`. Falls back to the literal `"latest"` tag if the registry is
- * unreachable so install still works (resolved at install time).
- */
-async function resolveRuntimeVersionRange(): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REGISTRY_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(`https://registry.npmjs.org/${RUNTIME_PACKAGE}/latest`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`registry responded with ${res.status}`);
-    const body = (await res.json()) as { version?: string };
-    if (body.version) return `^${body.version}`;
-    throw new Error('registry response missing version field');
-  } catch (err) {
-    p.log.warn(
-      `Could not resolve ${RUNTIME_PACKAGE} from npm registry (${(err as Error).message}); pinning to "latest".`
-    );
-    return 'latest';
-  } finally {
-    clearTimeout(timer);
   }
 }

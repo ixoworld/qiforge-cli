@@ -94,7 +94,7 @@ export async function fetchOrCreateEdMnemonic(
   // runtime-provisioned key and a fresh one would be useless, e.g. dashboard-access)
   if (!allowCreate) {
     throw new Error(
-      "No claim-signing key found in this oracle's Matrix room — run the oracle once (pnpm dev) so the runtime provisions it, then retry.",
+      "No UCAN signing key found in this oracle's Matrix account room — provision it with `qiforge-cli setup-signing-key`, then retry.",
     );
   }
   const edMnemonic = utils.mnemonic.generateMnemonic(12);

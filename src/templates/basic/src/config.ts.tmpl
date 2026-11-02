@@ -1,25 +1,35 @@
-import type { OracleConfig } from '@ixo/oracle-runtime';
+import type { OracleConfig } from '@ixo/oracle-runtime-workers';
+
+const name = {{oracleNameJson}};
+const org = {{orgJson}};
+const description = {{descriptionJson}};
 
 /**
- * Oracle identity + system prompt. Imported by `main.ts` and any integration
- * test that needs the config without triggering `bootstrap()`.
+ * Oracle identity and the prompt slots this project owns. Imported by
+ * `index.ts` and by `config.test.ts`.
  *
- * `entityDid` is sourced from the `ORACLE_ENTITY_DID` env var by the runtime —
- * don't put it here.
+ * The runtime's prompt composer (`@ixo/oracle-runtime-workers/prompt`) owns
+ * the rest of the system prompt: the capability catalog and how to load
+ * capabilities, tool and memory policy, the user's preferences and the date.
+ * Add only what the runtime lacks. `opening` replaces the composer's
+ * generated identity sentence verbatim, so it must still say who the oracle
+ * is.
+ *
+ * `entityDid` is not set here: the runtime reads it from the
+ * `ORACLE_ENTITY_DID` var in wrangler.jsonc.
  */
-export const config: OracleConfig = {
-  name: '{{name}}',
-  org: '{{org}}',
-  description: '{{description}}',
+export const config = {
+  name,
+  org,
+  description,
   prompt: {
-    opening:
-      "You are {{name}}, operated by {{org}}. {{description}} Help users by demonstrating capabilities — show, don't tell.",
+    opening: `You are ${name}, operated by ${org}. ${description}`,
     communicationStyle: [
-      '- Lead with action, not preamble.',
-      "- Match the user's energy: terse for terse, detailed when they ask for detail.",
-      "- When you call a tool, explain in one sentence what you're doing and why.",
+      '- Lead with the answer or the result, not preamble.',
+      "- Match the depth to the task and the user's preferences.",
+      '- Keep verified outcomes apart from inference, and say which is which.',
     ].join('\n'),
     capabilities:
-      "I can help with the capabilities my plugins expose. Ask me anything and I'll pick the right tool.",
+      'Use a tool when it changes the result: live facts, something you cannot verify from what you already have, or an action that has to actually happen.',
   },
-};
+} satisfies OracleConfig;

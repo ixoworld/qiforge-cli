@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+
+# Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+worker-configuration.d.ts
+
+# Written by qiforge-cli: the oracle's wallet mnemonic and Matrix credentials.
+# Back it up somewhere safe; never commit it or upload it as Worker secrets.
+oracle-credentials.env

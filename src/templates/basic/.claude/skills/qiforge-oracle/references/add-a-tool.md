@@ -1,52 +1,47 @@
 # Add a capability to an existing plugin
 
-Recipes for adding each kind of capability — tool, sub-agent, middleware, HTTP route, shared state, dependency.
+Recipes for each kind of capability: tool, per-request tool, sub-agent, middleware, HTTP route, shared state, per-user state, dependency. Imports come from `@ixo/oracle-runtime-workers`; Zod from `zod`.
 
 ## Add a tool
 
-Tools are functions the agent calls. Use `getTools` when the tool list is fixed; use `getRequestTools` when the tool needs per-request context.
-
 ```ts
-import { OraclePlugin, type PluginContext, type PluginTool, tool, z } from '@ixo/oracle-runtime';
+import { type PluginContext, type PluginTool, tool } from '@ixo/oracle-runtime-workers';
+import { z } from 'zod';
 
-override getTools(ctx: PluginContext): PluginTool[] {
+const currentWeatherSchema = z.object({
+  city: z.string().describe('City name, e.g. "Berlin".'),
+});
+
+override getTools(_ctx: PluginContext): PluginTool[] {
   return [
     tool(
-      async (args, rtCtx) => {
-        const { city } = args as { city: string };
-        return fetchCurrentWeather(city);
-      },
+      async (args) => fetchCurrentWeather(currentWeatherSchema.parse(args).city),
       {
         name: 'get_current_weather',
         description: 'Current weather for a city.',
-        schema: z.object({ city: z.string().describe('City name, e.g. "Berlin".') }),
+        schema: currentWeatherSchema,
+        effect: 'read', // no external effect: safe to re-run after a reset
       },
     ),
   ];
 }
 ```
 
-**Schema rules**: every field needs a `.describe()`. The agent reads descriptions; they're not optional documentation.
-
-**Naming**: use `snake_case` and a verb prefix (`get_`, `list_`, `create_`, `update_`, `search_`). The runtime is opinionated about this — it's what the agent reads.
+- Every schema field needs a `.describe()` — the agent reads it.
+- `snake_case` names with a verb (`get_`, `list_`, `create_`, `update_`, `search_`).
+- Mark read-only tools `effect: 'read'`. A tool with an external effect stays `write` (the default): the runtime will not re-run it blindly when a durable run resumes after a reset.
+- Use `fetch` for HTTP. Bound every outbound call (`AbortSignal.timeout(ms)`, and honour `ctx.abortSignal`).
 
 ## Add a per-request tool
 
-When the tool needs `rtCtx.user`, `rtCtx.session`, or fresh `rtCtx.config`:
+When the tool needs the user, the session or live state:
 
 ```ts
 override getRequestTools(rtCtx: RuntimeContext): PluginTool[] {
   return [
     tool(
-      async (args) => {
-        const { days } = args as { days: number };
-        return fetchForecast({ days, timezone: rtCtx.user.timezone });
-      },
-      {
-        name: 'get_weather_forecast',
-        description: 'Forecast for the user\'s timezone.',
-        schema: z.object({ days: z.number().int().min(1).max(14) }),
-      },
+      async (args) => fetchForecast({ ...forecastSchema.parse(args), timezone: rtCtx.user.timezone }),
+      { name: 'get_weather_forecast', description: "Forecast in the user's timezone.", schema: forecastSchema },
     ),
   ];
 }
@@ -54,20 +49,16 @@ override getRequestTools(rtCtx: RuntimeContext): PluginTool[] {
 
 ## Add a sub-agent
 
-Sub-agents are mini-agents the main agent can call as a tool. They have their own system prompt and tool set.
-
 ```ts
-import type { PluginSubAgent } from '@ixo/oracle-runtime';
-
 override getSubAgents(ctx: PluginContext): PluginSubAgent[] {
   return [
     {
       name: 'call_weather_planner_agent',
-      description: 'Decide outfit / equipment based on the forecast.',
-      systemPrompt: 'You are a weather-planner. Always fetch the forecast first, then recommend.',
-      tools: ctx => [getCurrentWeatherTool, getForecastTool],
+      description: 'Decide outfit / equipment from the forecast.',
+      systemPrompt: 'You are a weather planner. Always fetch the forecast first, then recommend.',
+      tools: [forecastTool],
       model: 'subagent',
-      forwardTools: ['get_weather_forecast'],   // stream sub-agent tool calls back to the main turn
+      forwardTools: ['get_weather_forecast'],
     },
   ];
 }
@@ -75,91 +66,87 @@ override getSubAgents(ctx: PluginContext): PluginSubAgent[] {
 
 ## Add a middleware
 
-Middlewares wrap every model call in the agent loop — useful for logging, retry, transformation, safety checks.
+Middlewares are LangChain `createMiddleware` objects; they run after the runtime's always-on middlewares.
 
 ```ts
-import type { AgentMiddleware } from '@ixo/oracle-runtime';
+import { createMiddleware } from 'langchain';
 
 override getMiddlewares(ctx: PluginContext): AgentMiddleware[] {
   return [
-    {
-      name: 'weather-logger',
-      beforeCall: async (state) => {
-        ctx.logger.log(`[weather] turn ${state.messages.length}`);
-      },
-      afterCall: async (_state, response) => {
-        ctx.logger.log(`[weather] model returned ${response.content.length} chars`);
-      },
-    },
+    createMiddleware({
+      name: 'WeatherLoggingMiddleware',
+      beforeModel: async () => ctx.logger.log('model call started'),
+      afterModel: async () => ctx.logger.log('model call complete'),
+    }),
   ];
 }
 ```
 
-## Add HTTP routes (via NestJS)
+`langchain` is a dependency of the runtime; add it to your own `package.json` (at the version the runtime pins) before importing it directly.
 
-Plugins can mount their own Nest controllers / modules. Use this for public webhooks, health checks, or any HTTP surface that doesn't fit the agent loop.
+## Add an HTTP route
+
+`getRoutes` replaces the Node runtime's NestJS modules: plain `{ method, path, handler }` records the Hono shell mounts.
 
 ```ts
-import { Module, Controller, Get } from '@nestjs/common';
-
-@Controller('weather')
-class WeatherController {
-  @Get('now')
-  async now() {
-    return { ok: true, source: 'open-meteo' };
-  }
+override getRoutes(ctx: PluginContext): PluginRoute[] {
+  return [
+    {
+      method: 'GET',
+      path: '/weather/now',
+      handler: async (request, _env, { auth }) => {
+        const city = new URL(request.url).searchParams.get('city');
+        return Response.json(await weatherNow(city));
+      },
+    },
+  ];
 }
 
-@Module({ controllers: [WeatherController] })
-class WeatherHttpModule {}
-
-override getNestModules(_ctx: PluginContext) {
-  return [WeatherHttpModule];
+// Routes are UCAN-authenticated unless the plugin opts them out:
+override getAuthExcludedRoutes(): AuthExcludedRoute[] {
+  return [{ path: 'weather/now', method: 'GET' }];
 }
 ```
 
-**Auth**: by default every route requires a UCAN header. To make a route public:
+`auth` is the validated caller on authenticated routes and `null` on excluded ones.
+
+## Keep per-user state
+
+`ctx.kv` is durable, per user, stored in the user's Durable Object. Use it instead of instance fields.
 
 ```ts
-import { RequestMethod } from '@nestjs/common';
-
-override getAuthExcludedRoutes(): AuthExcludedRoute[] {
-  return [{ path: 'weather/now', method: RequestMethod.GET }];
-}
+await rtCtx.kv?.set('climate', 'last-city', city, { idleTtlMs: 7 * 24 * 3600_000 });
+const last = await rtCtx.kv?.get('climate', 'last-city');
 ```
 
 ## Share state with other plugins
 
-`getSharedState` returns selectors that other plugins read via `rtCtx.shared.<key>`. Useful when plugin B needs the last query of plugin A.
-
 ```ts
 override getSharedState() {
   return {
-    lastWeatherQuery: (_state, runCtx) => this.lastBySession.get(runCtx.session.id),
+    lastWeatherQuery: (_state, runCtx) => /* derive from state or ctx.kv */ undefined,
   };
 }
 ```
 
+Other plugins read it through `rtCtx.shared`.
+
 ## Declare dependencies
 
 ```ts
-class CreditsAwarePlugin extends OraclePlugin {
-  readonly dependsOn = ['credits'];        // hard — boot fails if missing
-  readonly softDependsOn = ['memory'];     // soft — branches on availability
-}
+readonly dependsOn = ['memory'];       // hard — boot fails without it
+readonly softDependsOn = ['portal'];   // soft — check ctx.availablePlugins.has('portal')
 ```
 
-In code, check soft deps via `ctx.has('memory')` before using their shared state.
+## Call an IXO service with UCAN
+
+The oracle signs invocations with its Ed25519 key; gate on it:
+
+```ts
+if (!rtCtx.ucan.hasSigningKey()) return { error: 'This oracle has no UCAN signing key.' };
+const invocation = await rtCtx.ucan.mintInvocation({ did: serviceDid, capability: 'ixo:my-service' });
+```
 
 ## Source of truth
 
-Each recipe is documented separately:
-
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-a-tool
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-a-sub-agent
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-a-middleware
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-http-endpoints
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/share-state
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/declare-dependencies
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/set-visibility
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-config-and-env
+`node_modules/@ixo/oracle-runtime-workers/src/plugin-api/` and the bundled plugins under `src/plugins/` (the `WeatherPlugin` in `src/core/plugins/weather/` exercises every hook).

@@ -81,7 +81,7 @@ export class CreateEntityCommand implements Command {
       description = flags.description ?? 'We are a company that helps you with daily tasks';
       website = flags.website;
       parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
-      apiUrl = flags['api-url'] ?? 'http://localhost:4000';
+      apiUrl = flags['api-url'] ?? 'http://localhost:8787';
       matrixHomeServerUrl = defaultMatrixUrl;
       relayerNodeDid = flags['relayer-node'] ?? RELAYER_NODE_DID[currentNetwork ?? 'devnet'];
     } else {
@@ -93,7 +93,7 @@ export class CreateEntityCommand implements Command {
       if (isNewContext) {
         // Fast path called from `qiforge new`: oracle name, description, org,
         // and avatar were already collected — default everything else. All
-        // defaults are editable in oracle.config.json after scaffolding.
+        // defaults can be changed later (update-entity, update-oracle-api-url).
 
         // Let devs choose the relayer node (IXO default or a custom one).
         relayerNodeDid = await selectRelayerNode(currentNetwork ?? 'devnet');
@@ -111,7 +111,7 @@ export class CreateEntityCommand implements Command {
         description = prefilledDescription ?? '';
         website = undefined;
         parentProtocol = PARENT_PROTOCOL_DID[currentNetwork ?? 'devnet'];
-        apiUrl = 'http://localhost:4000';
+        apiUrl = 'http://localhost:8787';
         matrixHomeServerUrl = defaultMatrixUrl;
       } else {
         // Standalone `qiforge create-entity` — full interactive prompt set.
@@ -209,7 +209,7 @@ export class CreateEntityCommand implements Command {
             apiUrl: () =>
               p.text({
                 message: 'What is the API URL of the oracle?',
-                initialValue: 'http://localhost:4000',
+                initialValue: 'http://localhost:8787',
                 validate(value) {
                   return checkRequiredURL(value, 'API URL is required or a valid URL');
                 },

@@ -1,133 +1,72 @@
-# Add a new plugin
+# Add a plugin
 
-The end goal: a working plugin under `src/plugins/<name>/`, registered in `src/main.ts`, with a green test.
-
-## Step 1 — scaffold
+## 1. Scaffold
 
 ```bash
-qiforge-cli plugin new <name>
+qiforge-cli plugin new climate
 ```
 
-`<name>` must be kebab-case (lowercase letters / digits / hyphens, starts with a letter). The CLI rejects names that collide with bundled plugins (`memory`, `tasks`, `skills`, `firecrawl`, `editor`, `langfuse`, `slack`, `composio`, `credits`, `domain-indexer`, `portal`, `sandbox`, `user-preferences`, `agui`, `calls`).
-
-This produces:
+Creates `src/plugins/climate/`:
 
 ```
-src/plugins/<name>/
-├── <name>.plugin.ts          # OraclePlugin subclass with one sample tool
-├── <name>.plugin.test.ts     # three vitest tests via createTestRuntime
-├── README-<name>.md          # doc stub mirroring the manifest
-└── fixtures/                 # for test fixtures (empty)
+climate.plugin.ts        # OraclePlugin subclass with one sample tool (climate_echo)
+climate.plugin.test.ts   # three tests, run inside workerd
+README-climate.md
+fixtures/
 ```
 
-## Step 2 — register
+The name must be kebab-case and must not collide with a plugin the runtime ships (memory, sandbox, firecrawl, domain-indexer, composio, vfs, tasks, editor, user-preferences, portal, agui, attachments, matrix-group-chats, pod-creator, ixo-chain, action-proposals, hub-actions, flows, ixo-transaction, skills, weather, yoma).
 
-The CLI prints the exact snippet. Add to `src/main.ts`:
+## 2. Register it
+
+Plugins are not discovered; pass every one to `createOracleWorker` in `src/index.ts`:
 
 ```ts
-import { <NameClass>Plugin } from './plugins/<name>/<name>.plugin.js';
+import { BUNDLED_WORKERS_PLUGINS, createOracleWorker } from '@ixo/oracle-runtime-workers';
+import { ClimatePlugin } from './plugins/climate/climate.plugin';
 
-await createOracleApp({
+const oracle = createOracleWorker({
   config,
-  plugins: [
-    /* …existing plugins… */
-    new <NameClass>Plugin(),
-  ],
+  plugins: [...BUNDLED_WORKERS_PLUGINS, new ClimatePlugin()],
 });
 ```
 
-The `.js` extension is required — this is an ESM project.
+## 3. Give it configuration
 
-## Step 3 — flesh out the manifest
-
-The sample manifest is a stub. Replace the placeholders with the real intent:
-
-```ts
-const manifest: PluginManifest = {
-  title: 'Climate',
-  summary: 'Lookup carbon-emissions data for facilities by facility ID.',
-  whenToUse: [
-    'User asks about a facility\'s carbon emissions, scope-1/2/3 totals, or year-over-year change.',
-    'User asks for a comparison between facilities.',
-  ],
-  whenNotToUse: [
-    'Questions about climate policy or news (use web search instead).',
-  ],
-  examples: [
-    { user: "What were Plant 42's emissions in 2024?", tool: 'get_emissions', args: { facilityId: 'plant-42', year: 2024 } },
-  ],
-  tags: ['climate', 'emissions', 'facility'],
-  category: 'data',
-  visibility: 'on-demand',     // default — load when needed
-  stability: 'experimental',
-};
-```
-
-The agent uses `whenToUse` to decide when to load this plugin. Write triggers as concrete user-intent phrases, not abstract capabilities.
-
-## Step 4 — replace the sample tool
-
-The scaffold ships with `<name_camel>_echo`. Replace it with the real capability. Use the `tool()` helper:
-
-```ts
-override getTools(ctx: PluginContext): PluginTool[] {
-  return [
-    tool(
-      async (args, rtCtx) => {
-        const { facilityId, year } = args as { facilityId: string; year?: number };
-        return fetchEmissions(facilityId, year, ctx.config.CLIMATE_API_URL);
-      },
-      {
-        name: 'get_emissions',
-        description: 'Fetch carbon emissions for a facility by ID.',
-        schema: z.object({
-          facilityId: z.string().describe('Facility identifier, e.g. "plant-42".'),
-          year: z.number().int().optional().describe('Year (default: latest).'),
-        }),
-      },
-    ),
-  ];
-}
-```
-
-Recipes for the other hooks (sub-agent, middleware, HTTP, shared state, deps) live in `add-a-tool.md`.
-
-## Step 5 — declare env vars
-
-If the plugin needs an API key or endpoint, declare it in `configSchema`:
+Declare env vars in the plugin's `configSchema`; the runtime merges it into the env schema it validates at boot and hands the parsed values back as `ctx.config`:
 
 ```ts
 const configSchema = z.object({
   CLIMATE_API_URL: z.string().url(),
   CLIMATE_API_KEY: z.string().min(1),
 });
-```
 
-The runtime merges this into the composed env schema and validates `process.env` at boot. Add the keys to `.env.example` so consumers know what to set.
-
-If the plugin should only load when its env is present, gate it via `autoDetect`:
-
-```ts
-override autoDetect(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.CLIMATE_API_URL && env.CLIMATE_API_KEY);
+override autoDetect(env: PluginEnv): boolean {
+  // Leave the plugin out when its key is absent instead of failing the boot.
+  return typeof env.CLIMATE_API_KEY === 'string' && env.CLIMATE_API_KEY.length > 0;
 }
-override readonly autoDetectHint = 'CLIMATE_API_URL + CLIMATE_API_KEY';
+override readonly autoDetectHint = 'CLIMATE_API_KEY';
 ```
 
-Read more in `env-vars.md`.
+Then set the values: non-secret ones in the `vars` of `wrangler.jsonc`, secrets in `.dev.vars` (local) and `pnpm exec wrangler secret put CLIMATE_API_KEY` (deployed). See `env-vars.md`.
 
-## Step 6 — update the tests
+## 4. Replace the sample tool, write the manifest
 
-The scaffold's three tests cover the sample tool. Rewrite them to exercise the real behavior. See `testing.md` for `createTestRuntime` patterns.
+Write real `summary`, `whenToUse`, `whenNotToUse` and `examples` — they are what the agent reads to decide whether to load the plugin. See `add-a-tool.md` for every hook.
+
+## 5. Test
 
 ```bash
-pnpm test src/plugins/<name>
+pnpm test src/plugins/climate
+pnpm typecheck
 ```
 
-Don't claim the work as done until tests pass.
+Tests run inside workerd (`vitest.config.ts`); see `testing.md`.
 
-## Source of truth
+## 6. Run it
 
-- https://docs.ixo.world/build-an-oracle/build/write-a-plugin
-- https://docs.ixo.world/build-an-oracle/quickstart
-- https://docs.ixo.world/build-an-oracle/for-ai-agents
+```bash
+pnpm dev
+```
+
+The boot log lists every loaded and excluded plugin with the reason: `[boot] oracle '<name>' loaded plugins: [...] excluded: [...]`.

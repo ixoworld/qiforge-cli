@@ -1,0 +1,102 @@
+{
+  // {{name}} — the oracle script: the HTTP shell and the per-user Durable
+  // Objects. The Matrix gateway runs in its own script (wrangler.gateway.jsonc)
+  // so the two never share an isolate's 128 MB heap.
+  //
+  // First deploy: the gateway script first, then this one (`pnpm run deploy`
+  // does both in that order). Secrets are not in this file: put them in
+  // `.dev.vars` for `wrangler dev`, and upload them for a deployment with
+  //   pnpm exec wrangler secret bulk .dev.vars
+  // (see .dev.vars.example for which secret goes to which script).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{{workerName}}",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  // Minified bundles keep the isolate heap down: an unminified runtime bundle
+  // costs tens of MB more heap before the first turn, and a user object that
+  // crosses the 128 MB isolate limit is reset mid-turn. Wrangler keeps
+  // function and class names when minifying (`keep_names` defaults to true),
+  // which the Durable Object class exports and LangChain's class-name based
+  // serialization rely on; do not set `keep_names: false`.
+  "minify": true,
+  "observability": { "enabled": true },
+  // Long user-object work (an owner-copy import, a VACUUM of a large file)
+  // can exceed the default 30 s Durable Object CPU limit. Needs the Workers
+  // Paid plan.
+  "limits": { "cpu_ms": 300000 },
+  "alias": {
+    // @matrix-org/matrix-sdk-crypto-wasm's stock entry points cannot load on
+    // workerd; the bot SDK's shim imports the .wasm as a build-time module.
+    "@matrix-org/matrix-sdk-crypto-wasm": "@ixo/matrix-bot-workers-sdk/crypto-wasm-shim",
+    // The editor plugin's markdown → blocks bridge needs a DOM; on workerd
+    // jsdom is aliased to the runtime's linkedom-backed shim.
+    "jsdom": "./node_modules/@ixo/oracle-runtime-workers/src/plugins/editor/jsdom-shim.ts",
+  },
+  // Daily tick: sweeps expired artefact share copies once ARTIFACT_BUCKET is
+  // bound (the gateway's keep-alive cron lives in the gateway script).
+  "triggers": { "crons": ["0 3 * * *"] },
+  // Per-user-DID rate limit, enforced by the shell after authentication.
+  // `namespace_id` must be unique per oracle on your Cloudflare account:
+  // bindings that share one share their counters. This one was generated for
+  // this project by qiforge-cli.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMIT",
+      "namespace_id": "{{rateLimitNamespaceId}}",
+      "simple": { "limit": 100, "period": 60 },
+    },
+  ],
+  // Optional R2 buckets (create each once with `wrangler r2 bucket create`):
+  // - TIER_BUCKET: cold chunks of the users' working copies move out of
+  //   Durable Object storage into R2 (without it each user is capped at the
+  //   10 GB Durable Object limit).
+  // - ARTIFACT_BUCKET: encrypted share copies of long chat replies; also set
+  //   ORACLE_PUBLIC_URL in `vars`.
+  // "r2_buckets": [
+  //   { "binding": "TIER_BUCKET", "bucket_name": "{{workerName}}-tier" },
+  //   { "binding": "ARTIFACT_BUCKET", "bucket_name": "{{workerName}}-artifacts" },
+  // ],
+  "durable_objects": {
+    "bindings": [
+      // One instance per user DID: the user's SQLite working copy, sessions
+      // and the agent turn.
+      { "name": "USER_ORACLE", "class_name": "UserOracleDO" },
+      // The Matrix bot object lives in the gateway script.
+      {
+        "name": "MATRIX_GATEWAY",
+        "class_name": "MatrixGatewayDO",
+        "script_name": "{{gatewayWorkerName}}",
+      },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserOracleDO"] }],
+  // Non-secret configuration. Written by `qiforge-cli new` from the oracle it
+  // provisioned on {{network}}; every variable is documented in the runtime's
+  // configuration reference.
+  "vars": {
+    "ORACLE_NAME": {{oracleNameJson}},
+    "NETWORK": "{{network}}",
+    "ORACLE_DID": "{{oracleDid}}",
+    "ORACLE_ENTITY_DID": "{{entityDid}}",
+    "BLOCKSYNC_GRAPHQL_URL": "{{blocksyncUrl}}",
+    "MATRIX_BASE_URL": "{{matrixBaseUrl}}",
+    "MATRIX_HOMESERVER_NAME": "{{matrixServerName}}",
+    "MATRIX_ORACLE_ADMIN_USER_ID": "{{matrixUserId}}",
+    "MATRIX_ACCOUNT_ROOM_ID": "{{matrixRoomId}}",
+    // The IXO VFS holds each user's encrypted owner copy. Explicit URLs also
+    // activate the vfs plugin (the user's file tools).
+    "VFS_BASE_URL": "{{vfsBaseUrl}}",
+    "UCAN_STORE_URL": "{{ucanStoreUrl}}",
+    "MEMORY_MCP_URL": "{{memoryMcpUrl}}",
+    "MEMORY_ENGINE_URL": "{{memoryEngineUrl}}",
+    "FIRECRAWL_MCP_URL": "{{firecrawlMcpUrl}}",
+    "DOMAIN_INDEXER_URL": "{{domainIndexerUrl}}",
+    "SANDBOX_MCP_URL": "{{sandboxMcpUrl}}",
+    "SKILLS_CAPSULES_BASE_URL": "{{skillsCapsulesUrl}}",
+    "LOG_LEVEL": "info",
+    // Operator routes (/debug/*): with them on, any authenticated user could
+    // stop or restart the gateway. Keep off outside local debugging.
+    "ORACLE_DEBUG_ROUTES": "false",
+  },
+}

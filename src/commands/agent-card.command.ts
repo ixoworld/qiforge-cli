@@ -23,6 +23,12 @@ import {
 import { deriveHomeServerUrl } from '../utils/encryption-key';
 import { publicUpload } from '../utils/matrix/upload-to-matrix';
 import { detectOracleProject } from '../utils/project-detector';
+import {
+  loadOracleMatrixCredentials,
+  type OracleMatrixCredentials,
+  promptOracleMatrixCredentials,
+  withOracleMatrixToken,
+} from '../utils/oracle-matrix-session';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
 
@@ -142,7 +148,7 @@ export class AgentCardCommand implements Command {
       {
         entityDid: () =>
           p.text({
-            message: 'Oracle entity DID (ORACLE_ENTITY_DID from .env):',
+            message: 'Oracle entity DID (ORACLE_ENTITY_DID in wrangler.jsonc):',
             initialValue: this.config.getValue('entityDid')?.toString() ?? '',
             validate(value) {
               return checkIsEntityDid(value);
@@ -173,7 +179,7 @@ export class AgentCardCommand implements Command {
         projectPath: () =>
           p.text({
             message:
-              'Project path to save a local copy of the Agent Card (sets AGENT_CARD_PATH in .env):',
+              'Project path to save a local copy of the Agent Card (agent-card.json):',
             initialValue: detectDefaultProjectPath(this.config) ?? process.cwd(),
             validate(value) {
               return checkRequiredString(value, 'Project path is required');
@@ -222,41 +228,14 @@ export class AgentCardCommand implements Command {
     }
 
     // The card is uploaded with the ORACLE's Matrix account, not the developer's
-    const matrix = await p.group(
-      {
-        matrixRoomId: () =>
-          p.text({
-            message: 'Oracle Matrix room ID (MATRIX_ACCOUNT_ROOM_ID from .env):',
-            placeholder: '!abc123:devmx.ixo.earth',
-            validate(value) {
-              if (!value || !value.startsWith('!') || !value.includes(':')) {
-                return 'Matrix room ID must be in format !roomId:server (e.g. !abc123:devmx.ixo.earth)';
-              }
-              return checkRequiredString(value, 'Matrix room ID is required');
-            },
-          }),
-        matrixAccessToken: () =>
-          p.password({
-            message: 'Oracle Matrix access token (MATRIX_ORACLE_ADMIN_ACCESS_TOKEN from .env):',
-            validate(value) {
-              return checkRequiredString(value, 'Matrix access token is required');
-            },
-          }),
-      },
-      {
-        onCancel: () => {
-          p.cancel('Operation cancelled.');
-          process.exit(0);
-        },
-      },
-    );
+    const flags = parseCliFlags();
+    const matrix = flags.env ? loadOracleMatrixCredentials(flags.env) : await promptOracleMatrixCredentials();
 
     return this.publishCard({
       card,
       entityDid: base.entityDid,
       network,
-      homeServerUrl: deriveHomeServerUrl(matrix.matrixRoomId),
-      accessToken: matrix.matrixAccessToken,
+      matrix,
       projectPath: path.resolve(base.projectPath),
     });
   }
@@ -280,9 +259,19 @@ export class AgentCardCommand implements Command {
     }
     const matrixRoomId = flags['matrix-room-id'];
     const matrixAccessToken = flags['matrix-access-token'];
-    if (!matrixRoomId || !matrixAccessToken) {
+    let matrix: OracleMatrixCredentials;
+    if (flags.env) {
+      matrix = loadOracleMatrixCredentials(flags.env);
+    } else if (matrixRoomId && matrixAccessToken) {
+      matrix = {
+        homeServerUrl: deriveHomeServerUrl(matrixRoomId),
+        roomId: matrixRoomId,
+        auth: { accessToken: matrixAccessToken },
+      };
+    } else {
       throw new Error(
-        '--no-interactive requires --matrix-room-id and --matrix-access-token (the oracle Matrix credentials)',
+        '--no-interactive requires the oracle Matrix credentials: --env <oracle-credentials.env>, ' +
+          'or --matrix-room-id and --matrix-access-token',
       );
     }
 
@@ -318,7 +307,7 @@ export class AgentCardCommand implements Command {
       : detectDefaultProjectPath(this.config);
     if (!projectPath) {
       p.log.warn(
-        'Could not determine a project path — the Agent Card will be published but not saved locally. Pass --project-path to save a copy and set AGENT_CARD_PATH.',
+        'Could not determine a project path — the Agent Card will be published but not saved locally. Pass --project-path to save a copy.',
       );
     }
 
@@ -326,8 +315,7 @@ export class AgentCardCommand implements Command {
       card,
       entityDid,
       network,
-      homeServerUrl: deriveHomeServerUrl(matrixRoomId),
-      accessToken: matrixAccessToken,
+      matrix,
       projectPath,
     });
   }
@@ -340,15 +328,13 @@ export class AgentCardCommand implements Command {
     card,
     entityDid,
     network,
-    homeServerUrl,
-    accessToken,
+    matrix,
     projectPath,
   }: {
     card: AgentCard;
     entityDid: string;
     network: NETWORK;
-    homeServerUrl: string;
-    accessToken: string;
+    matrix: OracleMatrixCredentials;
     projectPath: string | undefined;
   }): Promise<CLIResult> {
     const walletAddress = this.wallet.wallet?.address;
@@ -367,12 +353,14 @@ export class AgentCardCommand implements Command {
     );
 
     s.start('Uploading Agent Card to Matrix...');
-    const upload = await publicUpload({
-      data: card,
-      fileName: 'agentCard',
-      homeServerUrl,
-      accessToken,
-    });
+    const upload = await withOracleMatrixToken(matrix, (accessToken) =>
+      publicUpload({
+        data: card,
+        fileName: 'agentCard',
+        homeServerUrl: matrix.homeServerUrl,
+        accessToken,
+      }),
+    );
     s.stop(`Agent Card uploaded (CID: ${upload.proof})`);
 
     const linkedResource = ixo.iid.v1beta1.LinkedResource.fromPartial({
@@ -425,7 +413,6 @@ export class AgentCardCommand implements Command {
       try {
         cardPath = saveAgentCardLocally(projectPath, card);
         p.log.success(`Local copy saved to ${cardPath}`);
-        p.log.info(`AGENT_CARD_PATH set in ${path.join(projectPath, '.env')}`);
       } catch (error) {
         // The card is already published on-chain — a local-save failure is a
         // convenience miss, not grounds to report the command as failed.

@@ -6,50 +6,49 @@ This file is read by Claude Code (and other agentic IDEs) at the start of every 
 
 ## What this oracle is
 
-A QiForge oracle built on `@ixo/oracle-runtime`. The runtime handles HTTP, auth (UCAN), the agent graph, the LangGraph checkpointer, Matrix sync, and bundles 14 plugins by default. **You** ship: oracle identity, optional custom plugins, glue.
+A QiForge oracle on **Cloudflare Workers**, built on `@ixo/oracle-runtime-workers`. The runtime brings the HTTP/SSE shell (UCAN auth on every request), one Durable Object per user (their SQLite working copy and the agent turn), the Matrix gateway object, the agent graph and the bundled plugins. **You** ship the oracle's identity, prompt slots and plugins.
 
 - **Organization:** {{org}}
-- **Framework:** [QiForge](https://docs.ixo.world/build-an-oracle) (`@ixo/oracle-runtime`)
+- **Runtime:** `@ixo/oracle-runtime-workers` — ships as TypeScript source; read it in `node_modules/@ixo/oracle-runtime-workers/src`
+- **Reference oracle:** https://github.com/ixoworld/qiforge/tree/main/apps/qiforge-workers-example
 - **Public docs:** https://docs.ixo.world/build-an-oracle
-- **AI-agent reference:** https://docs.ixo.world/build-an-oracle/for-ai-agents
 
 ## Layout
 
 ```
 src/
-├── main.ts        # bootstrap — calls createOracleApp({ config, plugins, … }) and listen()
-├── config.ts      # oracle identity + system prompt (name, org, description, prompt)
-└── plugins/       # custom plugins — one folder per plugin
+├── index.ts        # createOracleWorker({ config, plugins }) + export { UserOracleDO, MatrixGatewayDO }
+├── gateway.ts      # createGatewayWorker() — the Matrix gateway script
+├── config.ts       # identity + prompt slots
+└── plugins/        # custom plugins — one folder per plugin
+wrangler.jsonc          # oracle script (vars, Durable Objects, rate limit, aliases, minify)
+wrangler.gateway.jsonc  # gateway script
+.dev.vars               # local secrets (gitignored)
 ```
 
-Each custom plugin lives at `src/plugins/<name>/<name>.plugin.ts` with a colocated `<name>.plugin.test.ts`. The runtime auto-discovers nothing — every plugin must be passed in `plugins: []` in `main.ts`.
+Each custom plugin lives at `src/plugins/<name>/<name>.plugin.ts` with a colocated `<name>.plugin.test.ts`. Nothing is auto-discovered: every plugin is passed in `plugins: []` in `src/index.ts`.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | Hot-reload dev server (`tsx watch src/main.ts`). |
-| `pnpm build` | TypeScript → `dist/`. |
-| `pnpm start` | Run the compiled build. |
-| `pnpm typecheck` | Type-check without emit. |
-| `pnpm test` | Unit tests (vitest). |
-| `qiforge-cli plugin new <name>` | Scaffold a new plugin into `src/plugins/<name>/`. |
+| `pnpm dev` | `wrangler dev` with both scripts (http://localhost:8787) |
+| `pnpm test` | Unit tests inside workerd |
+| `pnpm typecheck` | Type-check |
+| `pnpm run build` | `wrangler deploy --dry-run` for both scripts |
+| `pnpm run deploy` | Deploy the gateway script, then the oracle script |
+| `qiforge-cli plugin new <name>` | Scaffold a plugin into `src/plugins/<name>/` |
 
 ## When the user asks "how do I…?"
 
-A bundled skill at `.claude/skills/qiforge-oracle/SKILL.md` carries the dense how-to (plugin anatomy, recipes, env vars, the 14 bundled plugins, testing patterns). Trigger it for any oracle/plugin authoring question — the references load on demand so context stays light.
+The bundled skill at `.claude/skills/qiforge-oracle/SKILL.md` carries the how-to: plugin anatomy, recipes, env vars and secrets, the bundled plugins, testing, deploy. Trigger it for any oracle or plugin question; its references load on demand.
 
-If the skill files don't cover it, fall back to:
+If the skill doesn't cover it: the runtime source in `node_modules/@ixo/oracle-runtime-workers/src`, then the public docs.
 
-1. The public docs at https://docs.ixo.world/build-an-oracle
-2. `src/main.ts` and any existing plugin under `src/plugins/` (canonical local examples)
+## Rules for this project
 
-## Working with plugins
-
-- Add a plugin via `qiforge-cli plugin new <name>` — produces a working skeleton with one tool + three tests.
-- Register the new plugin in `src/main.ts` (the scaffold prints the exact snippet).
-- The runtime validates the env at boot — every plugin's `configSchema` is merged into the composed schema. Missing required env vars fail fast with a clear error pointing at the plugin that needed them.
-
-## Environment
-
-`.env` holds secrets — never commit. `.env.example` lists every variable the bundled plugins and Tier-0 runtime need. Add plugin-specific variables to your plugin's `configSchema` (don't reach for `process.env` directly).
+- It is a Worker: no filesystem, no `process.env`, no long-lived servers. Plugins read configuration through `configSchema` → `ctx.config`.
+- Keep `"minify": true` and the `alias` blocks in both wrangler configs.
+- Keep `@ixo/matrix-bot-workers-sdk` at the exact version the runtime pins, and the `yjs` override in `pnpm-workspace.yaml`.
+- Secrets go in `.dev.vars` locally and `wrangler secret put` deployed — never in `wrangler.jsonc` or git. `oracle-credentials.env` holds the oracle's wallet mnemonic: never commit it.
+- Per-user plugin state goes in `ctx.kv`, never on the plugin instance.

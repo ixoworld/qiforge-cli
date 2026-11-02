@@ -1,0 +1,7 @@
+/**
+ * Entry of the test Worker (test/wrangler.test.jsonc). The tests import
+ * their subjects directly; this Worker only gives the pool something to run.
+ */
+export default {
+  fetch: () => new Response('test worker'),
+};

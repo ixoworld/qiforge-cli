@@ -1,0 +1,19 @@
+/**
+ * The Matrix gateway as its own Worker script (`wrangler.gateway.jsonc`).
+ *
+ * The oracle script (`src/index.ts`) keeps the HTTP shell and the per-user
+ * objects; this script holds only the Matrix bot object, so the two never
+ * share an isolate's 128 MB heap. The oracle's `MATRIX_GATEWAY` binding points
+ * here via `script_name`, and the `USER_ORACLE` binding here points back.
+ */
+import { createGatewayWorker } from '@ixo/oracle-runtime-workers/gateway';
+
+const gateway = createGatewayWorker();
+
+// wrangler.gateway.jsonc binds `MATRIX_GATEWAY` to this class.
+export const { MatrixGatewayDO } = gateway;
+
+export default {
+  fetch: gateway.fetch,
+  scheduled: gateway.scheduled,
+};

@@ -1,15 +1,43 @@
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Tests run inside workerd (the Workers vitest pool), the runtime the oracle
+ * ships on: `@ixo/oracle-runtime-workers` imports `cloudflare:workers` and
+ * compiles WASM at build time, so it does not load in plain Node.
+ * `test/wrangler.test.jsonc` is the test Worker's config.
+ */
 export default defineConfig({
+  resolve: {
+    // Mirror the `alias` block of wrangler.jsonc: vitest resolves modules
+    // itself and does not read wrangler's aliases.
+    alias: {
+      '@matrix-org/matrix-sdk-crypto-wasm': '@ixo/matrix-bot-workers-sdk/crypto-wasm-shim',
+      jsdom: resolve(here, 'node_modules/@ixo/oracle-runtime-workers/src/plugins/editor/jsdom-shim.ts'),
+    },
+  },
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: './test/wrangler.test.jsonc' },
+      // Never open a remote Cloudflare session from tests.
+      remoteBindings: false,
+    }),
+  ],
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
-    exclude: ['node_modules', 'dist'],
-    server: {
-      deps: {
-        // @veramo/* uses the old `assert { type: 'json' }` syntax that Node 22+
-        // dropped. Inlining these packages routes them through Vite/esbuild,
-        // which silently rewrites the syntax, so tests run on Node 22+/24+.
-        inline: [/@veramo\//, /@ixo\/oracles-chain-client/],
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
+    deps: {
+      optimizer: {
+        ssr: {
+          // Pre-bundle the runtime's CommonJS chains so the pool's module
+          // fallback does not serve them one request at a time.
+          include: ['wa-sqlite', '@noble/hashes', 'matrix-js-sdk'],
+        },
       },
     },
   },

@@ -2,6 +2,7 @@ import { Bip39, EnglishMnemonic, Secp256k1, sha256, Slip10, Slip10Curve, stringT
 import { AccountData, DirectSecp256k1HdWallet, OfflineSigner } from '@cosmjs/proto-signing';
 import type { DeliverTxResponse } from '@cosmjs/stargate';
 import { createQueryClient, createSigningClient, customMessages, ixo, utils } from '@ixo/impactxclient-sdk';
+import { Verification } from '@ixo/impactxclient-sdk/types/codegen/ixo/iid/v1beta1/tx';
 import { Service } from '@ixo/impactxclient-sdk/types/codegen/ixo/iid/v1beta1/types';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { createCipheriv, randomBytes } from 'crypto';
@@ -47,12 +48,16 @@ export async function checkIidDocumentExists(did: string, network: NETWORK) {
  * Must be signed by base account mnemonic (not passkey signer)
  * @param did - The did to create iid document for
  * @param offlineSigner - The offline signer to use to create iid document
+ * @param services - Services to put on the document
+ * @param extraVerifications - Verification methods besides the signer's own
+ *   secp256k1 set (e.g. the oracle's Ed25519 UCAN signing key)
  */
 export async function createIidDocument(
   did: string,
   network: NETWORK,
   offlineSigner: OfflineSigner,
-  services?: Service[]
+  services?: Service[],
+  extraVerifications: Verification[] = []
 ) {
   try {
     const accounts = await offlineSigner.getAccounts();
@@ -70,13 +75,16 @@ export async function createIidDocument(
       typeUrl: '/ixo.iid.v1beta1.MsgCreateIidDocument',
       value: ixo.iid.v1beta1.MsgCreateIidDocument.fromPartial({
         id: did,
-        verifications: customMessages.iid.createIidVerificationMethods({
-          did: did,
-          pubkey: pubkey,
-          address: address,
-          controller: did,
-          type: 'secp',
-        }),
+        verifications: [
+          ...customMessages.iid.createIidVerificationMethods({
+            did: did,
+            pubkey: pubkey,
+            address: address,
+            controller: did,
+            type: 'secp',
+          }),
+          ...extraVerifications,
+        ],
         signer: address,
         controllers: [did],
         ...(services?.length ? { services: services } : {}),

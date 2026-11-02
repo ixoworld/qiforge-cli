@@ -10,11 +10,10 @@ import { Wallet } from '../utils/wallet';
 export class UpdateEntityCommand implements Command {
   name = 'update-entity';
   description = 'Update an entity (add controllers, etc.)';
-  private readonly createEntity: CreateEntity;
-
-  constructor(private wallet: Wallet, private config: RuntimeConfig) {
-    this.createEntity = new CreateEntity(this.wallet, this.config);
-  }
+  // CreateEntity needs a logged-in wallet, so it is built when the command
+  // runs, not when the registry is set up (help and scaffold-only runs have
+  // no wallet).
+  constructor(private wallet: Wallet, private config: RuntimeConfig) {}
 
   async execute(): Promise<CLIResult> {
     const network = this.config.getValue('network') as NETWORK;
@@ -74,7 +73,7 @@ export class UpdateEntityCommand implements Command {
         const controllerDid = results.controllerDid;
         const entityDid = results.entityDid;
         p.log.info(`Adding controller ${controllerDid} to entity ${entityDid}`);
-        await this.createEntity.addControllerToEntity(entityDid, controllerDid);
+        await new CreateEntity(this.wallet, this.config).addControllerToEntity(entityDid, controllerDid);
         p.log.success(`Controller ${controllerDid} successfully added to entity ${entityDid}`);
         return {
           success: true,
