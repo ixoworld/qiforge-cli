@@ -53,6 +53,7 @@ Load only the reference you need:
 
 - **Workers, not Node.** No `fs`, no `process.env`, no long-lived servers or timers. Configuration arrives as the Worker `env`; plugins read it through their `configSchema` → `ctx.config`.
 - **Keep `"minify": true`** in both wrangler configs, and never set `keep_names: false`. A user object that crosses the 128 MB isolate limit is reset mid-turn; the minified bundle is the cheapest headroom there is.
+- **Keep string literals Latin-1** (no character above U+00FF; escape others as `\u…`). One wider character doubles the memory V8 holds for the whole bundle's source. `references/deploy.md` has the check.
 - **Keep the `alias` blocks.** `@matrix-org/matrix-sdk-crypto-wasm` → the bot SDK's shim, and (oracle script) `jsdom` → the runtime's linkedom shim. Without them the bundle does not load on workerd.
 - **Keep `@ixo/matrix-bot-workers-sdk` at the exact version `@ixo/oracle-runtime-workers` pins**, and the `yjs` override in `pnpm-workspace.yaml`. Upgrade the runtime and the bot SDK together.
 - **Per-user state goes in `ctx.kv`**, never on the plugin instance: one instance serves every user in the isolate.

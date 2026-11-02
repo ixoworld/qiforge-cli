@@ -47,9 +47,16 @@ pnpm exec wrangler r2 bucket create <oracle>-artifacts
 
 Each Durable Object isolate has 128 MB of heap. The runtime's bundle is large; minified it costs roughly 30 MB less heap before the first turn than unminified (measured on a production oracle's user object: about 54 MB vs 87 MB), and a user object that crosses 128 MB is reset mid-turn. Both wrangler configs set `"minify": true`. Wrangler keeps function and class names while minifying (`keep_names` defaults to `true`), so the Durable Object class exports and LangChain's name-based serialization keep working; never set `"keep_names": false`.
 
+Keep the bundle Latin-1. V8 stores a script's source at one byte per character only when every character is at most U+00FF; one character above that (an emoji, a curly quote, an em dash in a string literal) makes it two bytes per character for the whole multi-megabyte source. The runtime's own literals are Latin-1 since 0.37.0, so keep yours that way too: write such characters as `\u` escapes in strings (comments are stripped by the minifier). Check after `pnpm run build`:
+
+```bash
+node -e "const s=require('fs').readFileSync('dist/oracle/index.js','utf8');console.log((s.match(/[^\u0000-\u00ff]/g)||[]).length)"   # must print 0
+```
+
 ## Upgrading the runtime
 
 1. Bump `@ixo/oracle-runtime-workers` (exact version) and set `@ixo/matrix-bot-workers-sdk` to the exact version that runtime release depends on (`npm view @ixo/oracle-runtime-workers@<v> dependencies`).
 2. Read the runtime's CHANGELOG for wrangler config changes (new bindings, migrations, vars).
 3. `pnpm install && pnpm typecheck && pnpm test && pnpm run build`.
-4. Check the bundle holds one copy of yjs: `grep -c "Yjs was already imported" dist/oracle/index.js` must print `1`.
+4. Check the bundle holds one copy of yjs (`grep -c "Yjs was already imported" dist/oracle/index.js` prints `1`) and no character above U+00FF (the check above prints `0`).
+5. Never move to `0.36.0`: it contains a change that 0.36.1 reverted.

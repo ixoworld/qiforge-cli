@@ -53,7 +53,7 @@ my-oracle/
 └── .claude/skills/qiforge-oracle/   # Claude Code skill for the Workers runtime
 ```
 
-- The runtime is pinned exactly to the current npm release, with `@ixo/matrix-bot-workers-sdk` at the exact version that release depends on; `wrangler`, `vitest` and the Workers types follow the runtime's own ranges.
+- The runtime is pinned exactly to the release this CLI version was verified with (`@ixo/oracle-runtime-workers` 0.37.0, which carries the long-thread isolate-memory fixes), with `@ixo/matrix-bot-workers-sdk` at the exact version that release depends on; `wrangler`, `vitest` and the Workers types follow the runtime's own ranges. A newer runtime reaches scaffolds through a CLI release.
 - Two Worker scripts, oracle and gateway, so the Matrix bot never shares an isolate's 128 MB heap with the user objects. Both configs set `"minify": true` (wrangler keeps class and function names when minifying), `nodejs_compat`, the crypto-wasm and jsdom aliases, and `limits.cpu_ms: 300000`.
 - `pnpm dev` runs both scripts locally; `pnpm run deploy` deploys the gateway, then the oracle; `pnpm run build` is the `wrangler deploy --dry-run` of both.
 

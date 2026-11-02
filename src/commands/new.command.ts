@@ -24,7 +24,7 @@ import {
 } from '../utils/oracle-project';
 import { writeProvisionedProjectFiles } from '../utils/provisioned-project-files';
 import { RuntimeConfig } from '../utils/runtime-config';
-import { resolveScaffoldVersions, RUNTIME_PACKAGE } from '../utils/runtime-versions';
+import { RUNTIME_PACKAGE, SCAFFOLD_VERSIONS } from '../utils/runtime-versions';
 import { findTemplate, loadTemplateCatalog, type TemplateEntry } from '../utils/template-catalog';
 import { renderTemplate, renderTemplateFile } from '../utils/template-renderer';
 import { getTemplatesDir } from '../utils/templates-dir';
@@ -322,13 +322,8 @@ export class NewCommand implements Command {
       this.config.addValue('prefillOrgName', org);
       this.config.addValue('newCommandContext', 'true');
 
-      const { versions, fallbackReason } = await resolveScaffoldVersions();
-      if (fallbackReason) {
-        p.log.warn(
-          `Could not read ${RUNTIME_PACKAGE} from the npm registry (${fallbackReason}); ` +
-            `pinning the versions this CLI release was tested with (runtime ${versions.runtimeVersion}).`,
-        );
-      }
+      // The runtime release this CLI version was verified with (see runtime-versions.ts).
+      const versions = SCAFFOLD_VERSIONS;
       const network = (this.config.getValue('network') as NETWORK) ?? 'devnet';
       const templateDir = path.join(templatesDir, template.name);
       const rateLimitNamespaceId = generateRateLimitNamespaceId();

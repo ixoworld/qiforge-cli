@@ -7,7 +7,7 @@ import {
   placeholderIdentity,
   WRANGLER_CONFIG_TEMPLATES,
 } from '../utils/oracle-project';
-import { FALLBACK_SCAFFOLD_VERSIONS } from '../utils/runtime-versions';
+import { SCAFFOLD_VERSIONS } from '../utils/runtime-versions';
 import { renderTemplate, renderTemplateFile, toCamelCase, toPascalCase } from '../utils/template-renderer';
 
 /** wrangler's JSONC: strip comments and trailing commas, then JSON.parse. */
@@ -25,7 +25,7 @@ function projectVars(identity: OracleIdentityVars) {
     org: 'Acme',
     description: 'Demo oracle\'s "quoted" description.',
     network: 'devnet',
-    versions: FALLBACK_SCAFFOLD_VERSIONS,
+    versions: SCAFFOLD_VERSIONS,
     identity,
     rateLimitNamespaceId: '424242',
   });
@@ -97,10 +97,10 @@ describe('basic template', () => {
     };
     expect(pkg.name).toBe('demo-oracle');
     expect(pkg.description).toBe('Demo oracle\'s "quoted" description.');
-    expect(pkg.dependencies['@ixo/oracle-runtime-workers']).toBe(FALLBACK_SCAFFOLD_VERSIONS.runtimeVersion);
-    expect(pkg.dependencies['@ixo/matrix-bot-workers-sdk']).toBe(FALLBACK_SCAFFOLD_VERSIONS.botSdkVersion);
+    expect(pkg.dependencies['@ixo/oracle-runtime-workers']).toBe(SCAFFOLD_VERSIONS.runtimeVersion);
+    expect(pkg.dependencies['@ixo/matrix-bot-workers-sdk']).toBe(SCAFFOLD_VERSIONS.botSdkVersion);
     expect(pkg.dependencies['@ixo/oracle-runtime']).toBeUndefined();
-    expect(pkg.devDependencies.wrangler).toBe(FALLBACK_SCAFFOLD_VERSIONS.wranglerVersion);
+    expect(pkg.devDependencies.wrangler).toBe(SCAFFOLD_VERSIONS.wranglerVersion);
     expect(pkg.scripts.dev).toMatch(/^wrangler dev /);
     expect(pkg.scripts.deploy).toBe('wrangler deploy -c wrangler.gateway.jsonc && wrangler deploy -c wrangler.jsonc');
 

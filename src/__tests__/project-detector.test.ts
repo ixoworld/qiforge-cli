@@ -25,7 +25,7 @@ function makeProject(layout: { runtime: 'workers' | 'node' | 'none'; subdir?: st
       name: 'fake',
       dependencies:
         layout.runtime === 'workers'
-          ? { '@ixo/oracle-runtime-workers': '0.35.1' }
+          ? { '@ixo/oracle-runtime-workers': '0.37.0' }
           : layout.runtime === 'node'
             ? { '@ixo/oracle-runtime': '^1.93.0' }
             : { lodash: '^4.0.0' },

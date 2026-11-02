@@ -4,12 +4,13 @@ import {
   buildProjectTemplateVars,
   envLine,
   generateRateLimitNamespaceId,
+  latin1JsonString,
   parseEnvContent,
   placeholderIdentity,
   serverNameOfUserId,
   toWorkerName,
 } from '../utils/oracle-project';
-import { FALLBACK_SCAFFOLD_VERSIONS } from '../utils/runtime-versions';
+import { SCAFFOLD_VERSIONS } from '../utils/runtime-versions';
 
 describe('toWorkerName', () => {
   it('lower-cases and replaces characters Workers script names do not allow', () => {
@@ -56,7 +57,7 @@ describe('buildProjectTemplateVars', () => {
       org: 'Acme',
       description: 'Does things.',
       network: 'mainnet',
-      versions: FALLBACK_SCAFFOLD_VERSIONS,
+      versions: SCAFFOLD_VERSIONS,
       identity: placeholderIdentity('mainnet'),
       rateLimitNamespaceId: '123456',
     });
@@ -66,8 +67,18 @@ describe('buildProjectTemplateVars', () => {
     expect(vars.blocksyncUrl).toBe('https://blocksync-graphql.ixo.earth/graphql');
     expect(vars.vfsBaseUrl).toBe('https://vfs.ixo.earth');
     expect(vars.domainIndexerUrl).toBe('https://domain-indexer.ixo.earth');
-    expect(vars.runtimeVersion).toBe(FALLBACK_SCAFFOLD_VERSIONS.runtimeVersion);
+    expect(vars.runtimeVersion).toBe(SCAFFOLD_VERSIONS.runtimeVersion);
     expect(vars.matrixServerName).toBe('mx.ixo.earth');
+  });
+});
+
+describe('latin1JsonString', () => {
+  it('escapes every character above U+00FF and still parses back', () => {
+    const value = 'Café — “Qi” 🌱 \\ "quoted"';
+    const literal = latin1JsonString(value);
+    expect([...literal].every((c) => c.charCodeAt(0) <= 0xff)).toBe(true);
+    expect(JSON.parse(literal)).toBe(value);
+    expect(literal).toContain('Café');
   });
 });
 

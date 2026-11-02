@@ -1,11 +1,15 @@
 /**
  * The package versions a scaffolded oracle pins.
  *
- * Everything is read from the published manifest of `@ixo/oracle-runtime-workers`
- * so the scaffold always matches the runtime it installs:
+ * The runtime is pinned to one exact, verified release instead of npm
+ * `latest`: it is pre-1.0, minors have changed what the wrangler config must
+ * declare, and a bad release can sit on `latest` (0.36.0 shipped a change
+ * that 0.36.1 reverted). A new runtime release reaches scaffolds through a
+ * CLI release that re-runs the end-to-end check (docs/DEVELOPMENT.md).
  *
- * - the runtime itself, pinned exactly (it is pre-1.0; a caret on 0.x still
- *   moves minors, and minors have changed wrangler config requirements);
+ * Every companion version is taken from that release's published manifest
+ * (`scaffoldVersionsFromManifest`; the unit test holds the manifest fields):
+ *
  * - `@ixo/matrix-bot-workers-sdk`, which the scaffold depends on directly
  *   because wrangler resolves the crypto-wasm alias from the project root —
  *   it must be the exact version the runtime pins, or the bundle carries two
@@ -33,11 +37,13 @@ export interface ScaffoldVersions {
 }
 
 /**
- * Used only when the npm registry cannot be reached: the versions verified
- * together when this CLI release was cut (runtime 0.35.1, November 2026).
+ * `@ixo/oracle-runtime-workers` 0.37.0 and its companions. 0.37.0 carries the
+ * long-thread isolate-memory fixes (one tools node per message, one-shot
+ * gzip in the checkpointer, Latin-1 literals so a minified bundle's source
+ * costs one byte per character). Never 0.36.0: it contains the reverted #449.
  */
-export const FALLBACK_SCAFFOLD_VERSIONS: ScaffoldVersions = {
-  runtimeVersion: '0.35.1',
+export const SCAFFOLD_VERSIONS: ScaffoldVersions = {
+  runtimeVersion: '0.37.0',
   botSdkVersion: '0.7.0',
   zodVersion: '^4.4.3',
   wranglerVersion: '^4.125.0',
@@ -45,7 +51,7 @@ export const FALLBACK_SCAFFOLD_VERSIONS: ScaffoldVersions = {
   vitestVersion: '^4.0.0',
 };
 
-interface RuntimeManifest {
+export interface RuntimeManifest {
   version?: unknown;
   dependencies?: Record<string, unknown>;
   devDependencies?: Record<string, unknown>;
@@ -58,7 +64,12 @@ function requireString(value: unknown, what: string): string {
   return value;
 }
 
-/** Derive the scaffold versions from a published runtime manifest. Throws on a malformed one. */
+/**
+ * Derive the scaffold versions from a published runtime manifest (what
+ * `npm view @ixo/oracle-runtime-workers@<version> --json` prints). Used when
+ * moving `SCAFFOLD_VERSIONS` to a new runtime release. Throws on a malformed
+ * manifest.
+ */
 export function scaffoldVersionsFromManifest(manifest: RuntimeManifest): ScaffoldVersions {
   const deps = manifest.dependencies ?? {};
   const devDeps = manifest.devDependencies ?? {};
@@ -73,29 +84,4 @@ export function scaffoldVersionsFromManifest(manifest: RuntimeManifest): Scaffol
     ),
     vitestVersion: requireString(devDeps.vitest, 'devDependencies["vitest"]'),
   };
-}
-
-const REGISTRY_FETCH_TIMEOUT_MS = 5000;
-
-/**
- * Resolve the scaffold versions from the registry's `latest` manifest of the
- * runtime. On any failure returns the fallback set plus the reason, so the
- * caller can warn and still scaffold.
- */
-export async function resolveScaffoldVersions(
-  fetchImpl: typeof fetch = fetch,
-): Promise<{ versions: ScaffoldVersions; fallbackReason?: string }> {
-  try {
-    const res = await fetchImpl(`https://registry.npmjs.org/${RUNTIME_PACKAGE}/latest`, {
-      signal: AbortSignal.timeout(REGISTRY_FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`registry responded with ${res.status}`);
-    const manifest = (await res.json()) as RuntimeManifest;
-    return { versions: scaffoldVersionsFromManifest(manifest) };
-  } catch (err) {
-    return {
-      versions: FALLBACK_SCAFFOLD_VERSIONS,
-      fallbackReason: err instanceof Error ? err.message : String(err),
-    };
-  }
 }

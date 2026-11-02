@@ -92,6 +92,20 @@ export interface ProjectTemplateInput {
   rateLimitNamespaceId: string;
 }
 
+/**
+ * A JSON string literal (valid in package.json, JSONC and TypeScript alike,
+ * whatever quotes or backslashes the user typed) with every character above
+ * U+00FF written as a `\u` escape. The values land in `src/config.ts`, so
+ * they end up in the Worker bundle: one character above U+00FF there makes
+ * V8 hold the whole bundle source at two bytes per character.
+ */
+export function latin1JsonString(value: string): string {
+  return JSON.stringify(value).replace(
+    /[\u0100-\uffff]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+}
+
 /** Every `{{placeholder}}` the `basic` template uses. */
 export function buildProjectTemplateVars(input: ProjectTemplateInput): TemplateVars {
   const { network, identity, versions } = input;
@@ -100,11 +114,9 @@ export function buildProjectTemplateVars(input: ProjectTemplateInput): TemplateV
     name: input.projectName,
     workerName,
     gatewayWorkerName: `${workerName}-gateway`,
-    // JSON string literals: valid in package.json, JSONC and TypeScript alike,
-    // whatever quotes or backslashes the user typed.
-    oracleNameJson: JSON.stringify(input.oracleName),
-    orgJson: JSON.stringify(input.org),
-    descriptionJson: JSON.stringify(input.description),
+    oracleNameJson: latin1JsonString(input.oracleName),
+    orgJson: latin1JsonString(input.org),
+    descriptionJson: latin1JsonString(input.description),
     org: input.org,
     description: input.description,
     network,
