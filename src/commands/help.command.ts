@@ -17,18 +17,21 @@ USAGE:
   qiforge-cli [command] [options]
 
 COMMANDS:
-${commands.map((cmd) => `  ${cmd.name.padEnd(15)} ${cmd.description}`).join('\n')}
+${commands.map((cmd) => `  ${cmd.name.padEnd(22)} ${cmd.description}`).join('\n')}
 
 EXAMPLES:
-  qiforge-cli new my-oracle           Scaffold a new oracle from the bundled starter
+  qiforge-cli new                     Provision an oracle and scaffold its Cloudflare Workers project
+  qiforge-cli new --no-interactive --name my-oracle --skip-entity
+                                      Scaffold only (no login, nothing on chain or Matrix)
   qiforge-cli plugin new climate      Scaffold a plugin into the current oracle project
-  qiforge-cli --chat                  Chat with your oracle
+  qiforge-cli setup-signing-key --env oracle-credentials.env
+                                      Add the Ed25519 UCAN signing key to an older oracle
   qiforge-cli                         Launch interactive menu
   qiforge-cli help                    Show this help message
 
 OPTIONS:
-  --chat                      Start a chat session with your oracle
   --help, -h                  Show help information
+  --version, -v               Show the CLI version
 
 NEW COMMAND FLAGS (qiforge-cli new):
   --no-interactive            Skip prompts; requires --name
@@ -37,22 +40,33 @@ NEW COMMAND FLAGS (qiforge-cli new):
   --template <name>           Starter template (default: basic). See src/templates/index.json
   --description <text>        One-line oracle description
   --org <name>                Organization name (default: IXO)
+  --network <net>             devnet | testnet | mainnet (default: devnet)
   --install                   Run pnpm install after scaffolding
   --force                     Overwrite an existing non-empty target dir
+  --skip-entity               Scaffold only: no login, no entity, no Matrix account;
+                              the wrangler configs get placeholder identity values
+  --pin <6 digits>            PIN that encrypts the oracle's secrets (prompted if omitted)
 
 PLUGIN NEW COMMAND FLAGS (qiforge-cli plugin new <name>):
   --cwd <dir>                 Project directory (default: current working dir)
 
 AGENT CARD COMMAND FLAGS (qiforge-cli agent-card):
-  --no-interactive            Skip prompts; requires the flags below
+  --no-interactive            Skip prompts; requires --card and the oracle's Matrix credentials
   --card <path>               Agent Card JSON file to validate and publish
-  --matrix-room-id <id>       Oracle Matrix room ID (derives the homeserver)
-  --matrix-access-token <t>   Oracle Matrix access token
+  --env <path>                oracle-credentials.env (account room + bot password)
+  --matrix-room-id <id>       Oracle Matrix room ID, with --matrix-access-token (legacy)
+  --matrix-access-token <t>   Oracle Matrix access token (legacy Node-era oracles)
   --network <net>             devnet | testnet | mainnet (default: devnet)
-  --project-path <dir>        Oracle project dir to save a local copy into (sets AGENT_CARD_PATH in .env)
+  --project-path <dir>        Oracle project dir to save agent-card.json into
+
+SETUP ENCRYPTION KEY / SETUP SIGNING KEY FLAGS:
+  --env <path>                oracle-credentials.env for the oracle's Matrix account (and,
+                              for setup-signing-key, SECP_MNEMONIC + MATRIX_VALUE_PIN)
+  --network <net>             setup-signing-key: devnet | testnet | mainnet
+  --no-interactive            setup-signing-key: requires --env
 
 DASHBOARD ACCESS COMMAND FLAGS (qiforge-cli dashboard-access):
-  --env <path>                Oracle project .env with SECP_MNEMONIC + Matrix creds
+  --env <path>                oracle-credentials.env (SECP_MNEMONIC, PIN, Matrix credentials)
   --no-interactive            Skip prompts; requires --grant, --entity-did, --env
   --grant <did>               Console account DID to grant dashboard access to
   --entity-did <did>          Oracle entity DID to link

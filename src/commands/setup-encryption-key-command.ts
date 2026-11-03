@@ -2,19 +2,23 @@ import * as p from '@clack/prompts';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
 import { Command } from '.';
 import { CLIResult } from '../types';
+import { parseCliFlags } from '../utils/cli-flags';
 import {
   checkIsEntityDid,
   checkRequiredPin,
-  checkRequiredString,
   selectNetwork,
 } from '../utils/common';
 import {
   activateEncryptionKey,
   buildAddKeyAgreementMsg,
-  deriveHomeServerUrl,
   encryptionKeyExists,
   prepareEncryptionKey,
 } from '../utils/encryption-key';
+import {
+  loadOracleMatrixCredentials,
+  promptOracleMatrixCredentials,
+  withOracleMatrixToken,
+} from '../utils/oracle-matrix-session';
 import { RuntimeConfig } from '../utils/runtime-config';
 import { Wallet } from '../utils/wallet';
 
@@ -37,39 +41,16 @@ export class SetupEncryptionKeyCommand implements Command {
       {
         entityDid: () =>
           p.text({
-            message: 'Oracle entity DID (ORACLE_ENTITY_DID from .env):',
+            message: 'Oracle entity DID (ORACLE_ENTITY_DID in wrangler.jsonc):',
             initialValue:
               this.config.getValue('entityDid')?.toString() ?? '',
             validate(value) {
               return checkIsEntityDid(value);
             },
           }),
-        matrixRoomId: () =>
-          p.text({
-            message:
-              'Oracle Matrix room ID (MATRIX_ACCOUNT_ROOM_ID from .env):',
-            placeholder: '!abc123:devmx.ixo.earth',
-            validate(value) {
-              if (!value || !value.startsWith('!') || !value.includes(':')) {
-                return 'Matrix room ID must be in format !roomId:server (e.g. !abc123:devmx.ixo.earth)';
-              }
-              return checkRequiredString(value, 'Matrix room ID is required');
-            },
-          }),
-        matrixAccessToken: () =>
-          p.password({
-            message:
-              'Oracle Matrix access token (MATRIX_ORACLE_ADMIN_ACCESS_TOKEN from .env):',
-            validate(value) {
-              return checkRequiredString(
-                value,
-                'Matrix access token is required',
-              );
-            },
-          }),
         pin: () =>
           p.password({
-            message: 'Oracle PIN (MATRIX_VALUE_PIN from .env):',
+            message: 'Oracle PIN (MATRIX_VALUE_PIN in .dev.vars):',
             validate(value) {
               return checkRequiredPin(value);
             },
@@ -83,65 +64,70 @@ export class SetupEncryptionKeyCommand implements Command {
       },
     );
 
-    // Derive homeserver URL from room ID
-    const homeServerUrl = deriveHomeServerUrl(results.matrixRoomId);
+    const flags = parseCliFlags();
+    const matrix = flags.env ? loadOracleMatrixCredentials(flags.env) : await promptOracleMatrixCredentials();
+    const { homeServerUrl, roomId } = matrix;
 
     try {
-      if (!this.wallet.wallet?.address) {
+      const signerAddress = this.wallet.wallet?.address;
+      if (!signerAddress) {
         throw new Error(
           'Wallet not available. Please login first.',
         );
       }
 
-      // 1. Check if key already exists and is active
-      p.log.info('Checking for existing encryption key...');
-      const keyAlreadyExists = await encryptionKeyExists(
-        results.matrixRoomId,
-        results.matrixAccessToken,
-        homeServerUrl,
-      );
-
-      if (keyAlreadyExists) {
-        p.log.info(
-          'Encryption key already exists for this oracle. No action needed.',
+      const encKeyResult = await withOracleMatrixToken(matrix, async (accessToken) => {
+        // 1. Check if key already exists and is active
+        p.log.info('Checking for existing encryption key...');
+        const keyAlreadyExists = await encryptionKeyExists(
+          roomId,
+          accessToken,
+          homeServerUrl,
         );
-        return {
-          success: true,
-          data: 'Encryption key already exists',
-        };
+
+        if (keyAlreadyExists) {
+          p.log.info(
+            'Encryption key already exists for this oracle. No action needed.',
+          );
+          return undefined;
+        }
+
+        // 2. Prepare keypair (generates new or reuses existing inactive key)
+        p.log.info('Preparing P-256 encryption keypair...');
+        const encKeyResult = await prepareEncryptionKey({
+          roomId: roomId,
+          accessToken: accessToken,
+          homeServerUrl,
+          pin: results.pin,
+          oracleEntityDid: results.entityDid,
+        });
+        p.log.success('Encryption key prepared in Matrix room');
+
+        // 3. Build and sign MsgAddVerification via SignX
+        const addKeyMsg = buildAddKeyAgreementMsg({
+          oracleEntityDid: results.entityDid,
+          verificationMethodId: encKeyResult.verificationMethodId,
+          publicKeyMultibase: encKeyResult.publicKeyMultibase,
+          signerAddress,
+        });
+
+        p.log.info(
+          'Sign to add P-256 encryption key (keyAgreement) to the entity',
+        );
+        await this.wallet.signAndBroadcast([addKeyMsg]);
+
+        // 4. Mark key as active only after chain confirmation
+        await activateEncryptionKey({
+          roomId: roomId,
+          accessToken: accessToken,
+          homeServerUrl,
+          verificationMethodId: encKeyResult.verificationMethodId,
+        });
+        return encKeyResult;
+      });
+      if (!encKeyResult) {
+        return { success: true, data: 'Encryption key already exists' };
       }
-
-      // 2. Prepare keypair (generates new or reuses existing inactive key)
-      p.log.info('Preparing P-256 encryption keypair...');
-      const encKeyResult = await prepareEncryptionKey({
-        roomId: results.matrixRoomId,
-        accessToken: results.matrixAccessToken,
-        homeServerUrl,
-        pin: results.pin,
-        oracleEntityDid: results.entityDid,
-      });
-      p.log.success('Encryption key prepared in Matrix room');
-
-      // 3. Build and sign MsgAddVerification via SignX
-      const addKeyMsg = buildAddKeyAgreementMsg({
-        oracleEntityDid: results.entityDid,
-        verificationMethodId: encKeyResult.verificationMethodId,
-        publicKeyMultibase: encKeyResult.publicKeyMultibase,
-        signerAddress: this.wallet.wallet.address,
-      });
-
-      p.log.info(
-        'Sign to add P-256 encryption key (keyAgreement) to the entity',
-      );
-      await this.wallet.signAndBroadcast([addKeyMsg]);
-
-      // 4. Mark key as active only after chain confirmation
-      await activateEncryptionKey({
-        roomId: results.matrixRoomId,
-        accessToken: results.matrixAccessToken,
-        homeServerUrl,
-        verificationMethodId: encKeyResult.verificationMethodId,
-      });
 
       p.log.success(
         `P-256 encryption key published to entity DID: ${results.entityDid}`,

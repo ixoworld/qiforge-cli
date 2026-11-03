@@ -12,9 +12,11 @@ import { NewCommand } from './commands/new.command';
 import { OfflineLoginCommand } from './commands/offline-login.command';
 import { PluginNewCommand } from './commands/plugin-new.command';
 import { SetupEncryptionKeyCommand } from './commands/setup-encryption-key-command';
+import { SetupSigningKeyCommand } from './commands/setup-signing-key.command';
 import { SignXLoginCommand } from './commands/signX.commands';
 import { UpdateDomainCommand } from './commands/update-domain-command';
 import { UpdateEntityCommand } from './commands/update-entity-command';
+import { parseCliFlags } from './utils/cli-flags';
 import { handleError } from './utils/errors';
 import { RuntimeConfig } from './utils/runtime-config';
 import { Wallet } from './utils/wallet';
@@ -37,6 +39,7 @@ class CLIManager {
     this.registry.register(new UpdateEntityCommand(this.wallet, this.config));
     this.registry.register(new UpdateDomainCommand(this.wallet, this.config));
     this.registry.register(new SetupEncryptionKeyCommand(this.wallet, this.config));
+    this.registry.register(new SetupSigningKeyCommand(this.config));
     this.registry.register(new AgentCardCommand(this.wallet, this.config));
     this.registry.register(new DashboardAccessCommand(this.config));
     this.registry.register(new CreateUserCommand(this.wallet, this.config));
@@ -45,27 +48,10 @@ class CLIManager {
     this.registry.register(new HelpCommand(this.registry));
   }
 
-  private addFakeWallet() {
-    // add fake wallet to the config
-    this.wallet.setWallet({
-      address: '0x0000000000000000000000000000000000000000',
-      algo: 'secp',
-      did: 'did:ixo:entity:1a76366f16570483cea72b111b27fd78',
-      network: 'devnet',
-      name: 'My oracle',
-      pubKey:
-        '0x0400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
-      ledgered: false,
-      matrix: {
-        accessToken: '',
-        userId: '0x0000000000000000000000000000000000000000',
-        address: '',
-        roomId: '',
-      },
-    });
-  }
+  // Help needs no wallet: commands are only constructed here, never run.
+  // (It must never write one either — Wallet.setWallet persists to
+  // ~/.wallet.json and would overwrite the user's login.)
   private async showHelp(): Promise<void> {
-    this.addFakeWallet();
     this.registerCommands();
     const helpCommand = new HelpCommand(this.registry);
     const result = await helpCommand.execute();
@@ -195,11 +181,22 @@ class CLIManager {
       return;
     }
 
-    // `qiforge new <name>` — scaffold a new oracle
+    // `qiforge new <name>` — scaffold a new oracle. `--skip-entity` scaffolds
+    // without provisioning anything, so it needs no wallet.
     if (command === '--new' || command === 'new') {
-      await this.handleAuthentication();
+      if (parseCliFlags()['skip-entity'] !== 'true') {
+        await this.handleAuthentication();
+      }
       this.registerCommands();
       await this.executeCommand('new');
+      return;
+    }
+
+    // `qiforge setup-signing-key` acts only with the oracle's own keys — no
+    // user login needed.
+    if (command === 'setup-signing-key') {
+      this.registerCommands();
+      await this.executeCommand('setup-signing-key');
       return;
     }
 
@@ -208,13 +205,6 @@ class CLIManager {
     if (command === 'plugin' && args[1] === 'new') {
       this.registerCommands();
       await this.executeCommand('plugin-new');
-      return;
-    }
-
-    if (command === '--chat' || command === 'chat') {
-      await this.handleAuthentication();
-      this.registerCommands();
-      await this.executeCommand('chat');
       return;
     }
 

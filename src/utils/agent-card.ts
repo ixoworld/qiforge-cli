@@ -5,7 +5,6 @@ import { writeFileSync } from 'fs';
 import path from 'path';
 import agentCardSchemaSnapshot from '../schemas/agent-card-schema.json';
 import { checkRequiredString, EVAL_ENGINE_URL } from './common';
-import { upsertEnvVar } from './env-file';
 import { deriveServiceId } from './service-id';
 
 /** The developer's local, versioned copy of the published card. */
@@ -71,15 +70,14 @@ export function buildAgentCard({
 }
 
 /**
- * Writes the published card to `<projectPath>/agent-card.json` and points
- * `AGENT_CARD_PATH` at it in the project's `.env` — a local, versioned copy
- * of what's live on Matrix/chain, so the oracle runtime (and its developer)
- * can read the card without re-fetching it from Matrix.
+ * Writes the published card to `<projectPath>/agent-card.json` — a local,
+ * versioned copy of what is live on Matrix/chain for the developer. The
+ * Workers runtime does not read it (it has no filesystem); the published
+ * card on the entity is the source of truth.
  */
 export function saveAgentCardLocally(projectPath: string, card: AgentCard): string {
   const cardPath = path.join(projectPath, AGENT_CARD_FILENAME);
   writeFileSync(cardPath, `${JSON.stringify(card, null, 2)}\n`);
-  upsertEnvVar(path.join(projectPath, '.env'), 'AGENT_CARD_PATH', `./${AGENT_CARD_FILENAME}`);
   return cardPath;
 }
 

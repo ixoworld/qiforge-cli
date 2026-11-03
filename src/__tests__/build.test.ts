@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import path from 'path';
 
@@ -41,13 +42,21 @@ describe('build output', () => {
     expect(content).toContain('MsgCreateEntity');
   });
 
-  it('runs --help without errors', () => {
-    const result = execSync(`node ${CLI_JS} --help`, {
-      encoding: 'utf-8',
-      timeout: 15000,
-      env: { ...process.env, NODE_NO_WARNINGS: '1' },
-    });
-    expect(result).toContain('QiForge CLI');
-    expect(result).toContain('USAGE');
+  it('runs --help without errors and without writing a wallet', () => {
+    // A throwaway HOME: the CLI keeps its login in ~/.wallet.json, and --help
+    // once overwrote it with a fake wallet. It must not touch it at all.
+    const home = mkdtempSync(path.join(tmpdir(), 'qiforge-cli-home-'));
+    try {
+      const result = execSync(`node ${CLI_JS} --help`, {
+        encoding: 'utf-8',
+        timeout: 15000,
+        env: { ...process.env, HOME: home, NODE_NO_WARNINGS: '1' },
+      });
+      expect(result).toContain('QiForge CLI');
+      expect(result).toContain('USAGE');
+      expect(existsSync(path.join(home, '.wallet.json'))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

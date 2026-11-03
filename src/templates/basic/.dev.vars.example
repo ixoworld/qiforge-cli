@@ -1,0 +1,40 @@
+# Secrets for `wrangler dev`. Copy to .dev.vars (gitignored) and fill in;
+# `qiforge-cli new` writes .dev.vars for you with the values of the oracle it
+# provisioned. The non-secret configuration lives in the `vars` blocks of
+# wrangler.jsonc and wrangler.gateway.jsonc.
+#
+# For a deployment, upload the secrets per script:
+#   pnpm exec wrangler secret bulk .dev.vars                      # oracle script
+#   pnpm exec wrangler secret put MATRIX_ORACLE_ADMIN_PASSWORD -c wrangler.gateway.jsonc
+#   pnpm exec wrangler secret put MATRIX_RECOVERY_PHRASE -c wrangler.gateway.jsonc
+#   pnpm exec wrangler secret put MATRIX_VALUE_PIN -c wrangler.gateway.jsonc
+
+# The bot's Matrix password: the gateway logs its own devices in with it.
+# An access token is deliberately not accepted (a token is a device, and a
+# device shared with another client splits its encryption state).
+MATRIX_ORACLE_ADMIN_PASSWORD=
+# Secret-storage recovery passphrase: lets a fresh device restore room keys
+# from the account's key backup.
+MATRIX_RECOVERY_PHRASE=
+# PIN that encrypts the oracle's secrets in its Matrix account room: the
+# P-256 key for per-room secrets and the Ed25519 UCAN signing mnemonic.
+MATRIX_VALUE_PIN=
+
+# Platform LLM key (https://openrouter.ai/keys).
+OPEN_ROUTER_API_KEY=
+
+# Ed25519 mnemonic the oracle signs downstream UCAN invocations with (memory
+# engine, VFS, sandbox). Optional: when unset the runtime reads the copy
+# qiforge-cli stored PIN-encrypted in the oracle's Matrix account room (needs
+# MATRIX_ACCOUNT_ROOM_ID in wrangler.jsonc and MATRIX_VALUE_PIN above). Its
+# public key must be a verification method on the oracle's DID document.
+# ORACLE_SIGNING_MNEMONIC=
+
+# Composio plugin (optional): the oracle's Composio API key
+# (`qiforge-cli create-composio-key`). Without it the plugin stays off.
+# COMPOSIO_API_KEY=
+
+# LangSmith tracing (optional).
+# LANGSMITH_TRACING=true
+# LANGSMITH_API_KEY=
+# LANGSMITH_PROJECT=

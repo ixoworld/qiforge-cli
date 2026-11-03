@@ -1,111 +1,55 @@
-# Testing plugins
+# Testing
 
-The runtime ships `createTestRuntime` for fast, isolated plugin tests — no Nest boot, no real LLM, no Matrix. Use it for unit tests; reserve integration tests (real boot, real LLM) for whole-oracle scenarios.
+## Layers
 
-Imports come from the runtime's `/testing` subpath:
+| Layer | Command | What it proves |
+| --- | --- | --- |
+| Type check | `pnpm typecheck` | the oracle and its plugins compile against the runtime's types |
+| Unit (workerd) | `pnpm test` | plugins, tools and the prompt contract, inside workerd |
+| Bundle | `pnpm run build` | both scripts bundle with their aliases (`wrangler deploy --dry-run`) |
+| Local run | `pnpm dev`, then `curl localhost:8787/health` | the Worker boots and loads its plugins |
+
+## How the unit tests run
+
+`vitest.config.ts` uses `@cloudflare/vitest-plugin` (the successor of `@cloudflare/vitest-pool-workers`): tests execute inside workerd, the runtime the oracle ships on. Plain Node cannot load `@ixo/oracle-runtime-workers` (it imports `cloudflare:workers` and build-time WASM modules). The pool reads `test/wrangler.test.jsonc` (no bindings) and mirrors the wrangler aliases in `resolve.alias`.
+
+There is no `createTestRuntime` on Workers. Test a plugin directly:
 
 ```ts
-import { createTestRuntime } from '@ixo/oracle-runtime/testing';
-```
-
-## Three tests every plugin should have
-
-This is the shape `qiforge-cli plugin new <name>` generates:
-
-```ts
-import { createTestRuntime } from '@ixo/oracle-runtime/testing';
+import type { PluginContext } from '@ixo/oracle-runtime-workers';
 import { describe, expect, it } from 'vitest';
-import { ClimatePlugin } from './climate.plugin.js';
+import { ClimatePlugin, lookupClimate } from './climate.plugin';
+
+const pluginContext: PluginContext = {
+  config: { CLIMATE_API_URL: 'https://climate.example' },
+  identity: { name: 'Test', org: 'Test', description: '', entityDid: 'did:ixo:entity:00000000000000000000000000000000' },
+  availablePlugins: new Set(['climate']),
+  logger: { log() {}, warn() {}, error() {} },
+};
 
 describe('ClimatePlugin', () => {
-  it('boots without error', async () => {
-    const rt = await createTestRuntime({ plugins: [new ClimatePlugin()] });
-    expect(rt.listTools().map((t) => t.name)).toContain('get_emissions');
-    await rt.close();
+  it('exposes its tools', () => {
+    expect(new ClimatePlugin().getTools(pluginContext).map((t) => t.name)).toEqual(['get_climate']);
   });
 
-  it('returns expected data for a known facility', async () => {
-    const rt = await createTestRuntime({ plugins: [new ClimatePlugin()] });
-    const result = await rt.invokeTool('get_emissions', { facilityId: 'plant-42' });
-    expect(result).toMatchObject({ scope1: expect.any(Number) });
-    await rt.close();
+  it('validates input with its schema', () => {
+    const [tool] = new ClimatePlugin().getTools(pluginContext);
+    expect(tool?.schema.safeParse({}).success).toBe(false);
   });
 
-  it('matches the manifest snapshot', () => {
-    expect(new ClimatePlugin().manifest).toMatchSnapshot();
+  it('computes the result', async () => {
+    expect(await lookupClimate('Berlin', fakeFetch)).toEqual({ city: 'Berlin', tempC: 12 });
   });
 });
 ```
 
-## Calling tools and middlewares
+Keep the tool's logic in an exported function that takes its dependencies (a `fetch`, a clock) as parameters; test that function, and test the wiring (tool names, schemas, manifest) through the plugin. A tool handler's second argument is the full per-turn `RuntimeContext`; don't fake it with casts — move what the handler needs into the function's parameters instead.
 
-```ts
-const rt = await createTestRuntime({ plugins: [new MyPlugin()] });
+`src/config.test.ts` composes the whole system prompt with `@ixo/oracle-runtime-workers/prompt` and checks the oracle's slots land in it. Add assertions there for prompt rules that must hold.
 
-// Invoke a tool
-await rt.invokeTool('get_emissions', { facilityId: 'plant-42' });
+## Rules
 
-// Inspect what's registered
-rt.listTools();
-rt.listCapabilities();
-
-// Trigger a middleware in isolation
-await rt.invokeMiddleware('weather-logger', { messages: [] });
-
-await rt.close();
-```
-
-## Supplying config / fetch mocks
-
-```ts
-const rt = await createTestRuntime({
-  plugins: [new ClimatePlugin()],
-  config: {
-    CLIMATE_API_URL: 'https://api.test',
-    CLIMATE_API_KEY: 'test-key',
-  },
-  mocks: {
-    fetch: async (req) => {
-      if (req.url.endsWith('/emissions/plant-42')) {
-        return new Response(JSON.stringify({ scope1: 1234 }), { status: 200 });
-      }
-      return new Response('not found', { status: 404 });
-    },
-  },
-});
-```
-
-## Overriding user / session
-
-When a tool reads `rtCtx.user` or `rtCtx.session`:
-
-```ts
-const rt = await createTestRuntime({
-  plugins: [new MyPlugin()],
-  user: { did: 'did:ixo:user:abc', timezone: 'Europe/Berlin' },
-  session: { id: 'sess-1' },
-});
-```
-
-## What `createTestRuntime` does NOT do
-
-- **No Nest boot** — `getNestModules` plugins still register, but routes aren't reachable. Test those with integration tests.
-- **No real LLM** — `mocks.llm.respondWith` returns canned strings. Don't assert on the LLM's exact wording.
-- **No real Matrix** — `mocks.matrix` returns canned responses.
-- **No checkpointer persistence** — state is in-memory and dies with `rt.close()`.
-
-Use it where it's cheap and deterministic; reach for integration tests when you need the real graph + real services.
-
-## Running tests
-
-```bash
-pnpm test                          # all
-pnpm test src/plugins/<name>       # one plugin
-pnpm test --watch                  # watch mode during dev
-```
-
-The starter is wired with vitest. The unit-test glob picks up `*.test.ts` under `src/` and `test/`.
-
-## Source of truth
-
-- https://docs.ixo.world/build-an-oracle/build/test-your-oracle
+- Run every test you write; done means green.
+- Don't loosen an assertion to make a failure go away — find the cause.
+- Integration tests against real services throw on missing configuration; they don't skip silently.
+- `vi.mock` of npm modules is not served by the workerd pool's module fallback; inject dependencies instead.

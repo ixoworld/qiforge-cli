@@ -16,7 +16,7 @@ import { getTemplatesDir } from '../utils/templates-dir';
  * `qiforge plugin new <name>` — scaffolds a class-based plugin into
  * `<project>/src/plugins/<name>/` with a sample tool, three tests, and a
  * README stub. Run from inside an oracle project (auto-detected by walking
- * up for a package.json that depends on `@ixo/oracle-runtime`).
+ * up for a package.json that depends on `@ixo/oracle-runtime-workers`).
  */
 export class PluginNewCommand implements Command {
   name = 'plugin-new';
@@ -86,17 +86,19 @@ export class PluginNewCommand implements Command {
           nameKebab: name,
           nameClass: toPascalCase(name),
           nameCamel: toCamelCase(name),
+          // Tool names are snake_case, like the runtime's own.
+          nameSnake: name.replace(/-/g, '_'),
         },
       });
 
       const className = `${toPascalCase(name)}Plugin`;
       p.log.success(
         `\n✅ Plugin scaffolded at ${path.relative(process.cwd(), targetDir)}/\n\n` +
-          `📝 Register it in src/main.ts:\n` +
-          `   import { ${className} } from './plugins/${name}/${name}.plugin.js';\n\n` +
-          `   await createOracleApp({\n` +
+          `📝 Register it in src/index.ts:\n` +
+          `   import { ${className} } from './plugins/${name}/${name}.plugin';\n\n` +
+          `   const oracle = createOracleWorker({\n` +
           `     config,\n` +
-          `     plugins: [..., new ${className}()],\n` +
+          `     plugins: [...BUNDLED_WORKERS_PLUGINS, new ${className}()],\n` +
           `   });\n\n` +
           `🧪 Run tests: pnpm test src/plugins/${name}`,
       );

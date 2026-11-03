@@ -8,10 +8,16 @@ export interface DetectedProject {
   pkg: Record<string, unknown>;
 }
 
+/** The runtime a scaffolded oracle depends on. */
+export const WORKERS_RUNTIME_PACKAGE = '@ixo/oracle-runtime-workers';
+/** The deprecated Node runtime — recognised only to point its users at the Workers runtime. */
+const NODE_RUNTIME_PACKAGE = '@ixo/oracle-runtime';
+
 /**
  * Walk up from `startDir` looking for a `package.json` that depends on
- * `@ixo/oracle-runtime` (in `dependencies`, `devDependencies`, or
- * `peerDependencies`). Throws with a clear message if not found.
+ * `@ixo/oracle-runtime-workers` (in `dependencies`, `devDependencies`, or
+ * `peerDependencies`). Throws with a clear message if not found, or if the
+ * project is on the deprecated Node runtime.
  */
 export function detectOracleProject(startDir: string): DetectedProject {
   let dir = path.resolve(startDir);
@@ -21,8 +27,15 @@ export function detectOracleProject(startDir: string): DetectedProject {
     const pkgPath = path.join(dir, 'package.json');
     if (existsSync(pkgPath)) {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
-      if (hasRuntimeDep(pkg)) {
+      if (hasDep(pkg, WORKERS_RUNTIME_PACKAGE)) {
         return { root: dir, pkg };
+      }
+      if (hasDep(pkg, NODE_RUNTIME_PACKAGE)) {
+        throw new Error(
+          `${pkgPath} depends on ${NODE_RUNTIME_PACKAGE}, the deprecated Node runtime. ` +
+            `The CLI scaffolds plugins for ${WORKERS_RUNTIME_PACKAGE} only — move the oracle to the Workers runtime ` +
+            `(see \`qiforge-cli new\`) first.`,
+        );
       }
     }
 
@@ -31,12 +44,12 @@ export function detectOracleProject(startDir: string): DetectedProject {
   }
 
   throw new Error(
-    `Could not find an oracle project (no package.json with @ixo/oracle-runtime dep found from ${startDir} upward). ` +
+    `Could not find an oracle project (no package.json with a ${WORKERS_RUNTIME_PACKAGE} dependency found from ${startDir} upward). ` +
       `Run this command inside an oracle project directory or pass --cwd.`,
   );
 }
 
-function hasRuntimeDep(pkg: Record<string, unknown>): boolean {
+function hasDep(pkg: Record<string, unknown>, name: string): boolean {
   const buckets: ReadonlyArray<keyof typeof pkg> = [
     'dependencies',
     'devDependencies',
@@ -44,7 +57,7 @@ function hasRuntimeDep(pkg: Record<string, unknown>): boolean {
   ];
   for (const key of buckets) {
     const deps = pkg[key];
-    if (deps && typeof deps === 'object' && '@ixo/oracle-runtime' in deps) {
+    if (deps && typeof deps === 'object' && name in deps) {
       return true;
     }
   }
@@ -52,25 +65,35 @@ function hasRuntimeDep(pkg: Record<string, unknown>): boolean {
 }
 
 /**
- * Names taken by bundled plugins shipped from `@ixo/oracle-runtime`. Hardcoded
- * here so the CLI doesn't need to dynamically load the runtime just to validate
- * a plugin name. Keep in sync with `packages/oracle-runtime/src/plugins/index.ts`.
+ * Names taken by plugins shipped in `@ixo/oracle-runtime-workers` — the
+ * bundled set (`BUNDLED_WORKERS_PLUGINS`) and the exported opt-in ones
+ * (flows, ixo-transaction, skills, weather, yoma). Hardcoded so the CLI does
+ * not load the runtime to validate a name; keep in sync with the runtime's
+ * `src/plugins/index.ts` and `src/core/plugins/`.
  */
 export const RESERVED_PLUGIN_NAMES: ReadonlySet<string> = new Set([
-  'memory',
-  'portal',
-  'firecrawl',
-  'domain-indexer',
+  'action-proposals',
+  'agui',
+  'attachments',
   'composio',
+  'domain-indexer',
+  'editor',
+  'firecrawl',
+  'flows',
+  'hub-actions',
+  'ixo-chain',
+  'ixo-transaction',
+  'matrix-group-chats',
+  'memory',
+  'pod-creator',
+  'portal',
   'sandbox',
   'skills',
-  'editor',
-  'agui',
-  'slack',
   'tasks',
-  'credits',
-  'calls',
   'user-preferences',
+  'vfs',
+  'weather',
+  'yoma',
 ]);
 
 /** Plugin name validator. kebab-case, starts with letter, 2–40 chars. */

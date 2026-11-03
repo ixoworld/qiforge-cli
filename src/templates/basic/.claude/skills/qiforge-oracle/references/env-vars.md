@@ -1,111 +1,55 @@
-# Environment variables
+# Environment: vars, secrets, bindings
 
-QiForge composes the env schema at boot: base (Tier-0) + every loaded plugin's `configSchema`. Missing required vars fail fast with a clear error naming the plugin that needed them.
+On Workers the environment is the Worker `env` object. Three sources feed it:
 
-## Tier-0 (runtime base)
-
-Required regardless of which plugins you ship. These are validated by the runtime itself.
-
-| Var | Required | What it does |
+| Kind | Where it lives locally | Where it lives deployed |
 | --- | --- | --- |
-| `ORACLE_ENTITY_DID` | yes | The oracle's IXO entity DID. |
-| `ORACLE_MNEMONIC` (or `SECP_MNEMONIC`) | yes | Wallet mnemonic for chain signing. |
-| `MATRIX_ORACLE_ADMIN_USER_ID` | yes | Matrix user the bot logs in as. |
-| `MATRIX_ORACLE_ADMIN_PASSWORD` | yes | Matrix bot password. |
-| `MATRIX_ORACLE_ADMIN_ACCESS_TOKEN` | yes | Matrix access token (rotate periodically). |
-| `MATRIX_BASE_URL` | yes | Homeserver URL. |
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` or `OPEN_ROUTER_API_KEY` | yes | At least one LLM provider key. |
-| `PORT` | optional | HTTP port (default 3000). |
-| `NODE_ENV` | optional | `development` / `production`. |
-| `CORS_ORIGIN` | optional | Default `*`. |
-| `SQLITE_DATABASE_PATH` | optional | Path for the checkpointer DB. Default `./.data/sqlite`. |
-| `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | optional | Enables LangSmith tracing. |
+| Non-secret vars | `vars` in `wrangler.jsonc` / `wrangler.gateway.jsonc` | the same (deployed with the script) |
+| Secrets | `.dev.vars` (gitignored; `.dev.vars.example` documents it) | `pnpm exec wrangler secret put <NAME>` or `wrangler secret bulk .dev.vars` |
+| Bindings (Durable Objects, R2, rate limits, services) | wrangler config | the same |
 
-## Bundled-plugin env (only loaded plugins read theirs)
+The runtime validates the merged env at boot against its core schema (`node_modules/@ixo/oracle-runtime-workers/src/core/env.ts`) plus every loaded plugin's `configSchema`; a missing required key fails the boot with the key's name. `docs/configuration.md` in the runtime repo documents every variable.
 
-| Plugin | Env |
-| --- | --- |
-| `memory` | `MEMORY_MCP_URL`, `MEMORY_ENGINE_URL` |
-| `firecrawl` | `FIRECRAWL_MCP_URL` or `FIRECRAWL_API_KEY` |
-| `sandbox` | `SANDBOX_MCP_URL` |
-| `composio` | `COMPOSIO_API_KEY` (auto-detected) |
-| `slack` | `SLACK_BOT_OAUTH_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_USE_SOCKET_MODE` |
-| `tasks` | `REDIS_URL` |
-| `credits` | `DISABLE_CREDITS` to opt-out |
-| `skills` | `SKILLS_API_URL` (optional) |
-| `vfs` | `VFS_MAX_READ_LINES`, `VFS_REQUEST_TIMEOUT_MS` (both optional) |
-| `oracle-payments` | see below — all optional |
+## Required (oracle script)
 
-### `oracle-payments`
+| Name | Kind | Meaning |
+| --- | --- | --- |
+| `ORACLE_NAME` | var | display name |
+| `ORACLE_DID` | var | the oracle's account DID — UCAN audience of every request |
+| `BLOCKSYNC_GRAPHQL_URL` | var | did:ixo key resolution |
+| `MATRIX_BASE_URL`, `MATRIX_ORACLE_ADMIN_USER_ID` | var | the bot's homeserver and user id |
+| `MATRIX_ORACLE_ADMIN_PASSWORD` | secret | the gateway logs its own devices in with it (no access token) |
+| `OPEN_ROUTER_API_KEY` | secret | platform LLM key |
 
-| Var | What it does |
-| --- | --- |
-| `ORACLE_PAYMENTS_DISABLED` | Exactly `'true'` or `'false'`. `'true'` excludes the plugin at boot. |
-| `EVAL_ENGINE_URL` | Evaluation engine base URL. **Without it contract lookups are disabled** — nobody can start paid work. Support chat is unaffected. |
-| `AGENT_CARD_PATH` | Path to the local Agent Card copy, set by `qiforge-cli agent-card`. Seeds the card cache and derives the plugin manifest from the card. A path that is set but unreadable, malformed, or describing a different entity than `ORACLE_ENTITY_DID` fails boot. |
-| `ORACLE_PAYMENTS_ROUTER_MODEL` | Model id for the support/work classifier. Defaults to the provider's `routing` role model. |
-| `ORACLE_PAYMENTS_MAX_DELIVERABLE_MB` | Size ceiling on one delivered file. Default `25`. |
-| `PORTAL_URL` | Portal base URL — when set, the delivery receipt and payment cards carry a claim deep link. |
+## Needed for the full feature set
 
-For the full grouped list, see `https://docs.ixo.world/build-an-oracle/reference/environment-variables`.
+| Name | Kind | Meaning |
+| --- | --- | --- |
+| `ORACLE_ENTITY_DID` | var | the oracle's entity; required when the memory plugin loads |
+| `NETWORK` | var | `devnet` / `testnet` / `mainnet` (default `mainnet`); picks service defaults |
+| `MATRIX_ACCOUNT_ROOM_ID` | var | the oracle's account room: P-256 secrets key and the UCAN signing mnemonic |
+| `MATRIX_VALUE_PIN` | secret | decrypts what the account room holds |
+| `MATRIX_RECOVERY_PHRASE` | secret | restores room keys from the key backup on a fresh device |
+| `MATRIX_HOMESERVER_NAME` | var | server name for room aliases |
+| `ORACLE_SIGNING_MNEMONIC` | secret, optional | overrides the signing mnemonic read from the account room |
 
-## Adding env vars for YOUR plugin
+Without a UCAN signing key (no `ORACLE_SIGNING_MNEMONIC` and nothing readable in the account room) the oracle cannot call IXO services: no owner copy in the VFS, no memory engine, no sandbox. `qiforge-cli new` provisions it; `qiforge-cli setup-signing-key` adds it to older oracles.
 
-Always declare via `configSchema` — never read `process.env` directly inside plugin code.
+## Plugin keys (vars unless noted)
 
-```ts
-const configSchema = z.object({
-  CLIMATE_API_URL: z.string().url(),
-  CLIMATE_API_KEY: z.string().min(1),
-  CLIMATE_DEFAULT_YEAR: z.coerce.number().int().default(new Date().getFullYear() - 1),
-});
+`MEMORY_MCP_URL`, `MEMORY_ENGINE_URL` (memory) · `SANDBOX_MCP_URL` (sandbox) · `FIRECRAWL_MCP_URL` (firecrawl) · `DOMAIN_INDEXER_URL` (domain-indexer) · `VFS_BASE_URL`, `UCAN_STORE_URL` (vfs; explicit values also turn on the user's file tools) · `SKILLS_CAPSULES_BASE_URL` (skills, sandbox) · `COMPOSIO_API_KEY` (secret) and `COMPOSIO_BASE_URL` (composio) · `IXO_CHAIN_TOOLS`, `CHAIN_REST_URL`, `IXO_NAMES_URL` (ixo-chain).
 
-export class ClimatePlugin extends OraclePlugin {
-  override readonly configSchema = configSchema;
+## Common optional keys
 
-  override getTools(ctx: PluginContext) {
-    const { CLIMATE_API_URL, CLIMATE_API_KEY } = configSchema.parse(ctx.config);
-    return [/* tools using these */];
-  }
-}
-```
+`LOG_LEVEL` · `ORACLE_DEBUG_ROUTES` (keep `false` deployed) · `DEFAULT_MODEL` · `DECISION_PROVIDER` / `CAPABILITY_ROUTER` · `MATRIX_CHAT_DELIVERY` · `ORACLE_PUBLIC_URL` (with `ARTIFACT_BUCKET`) · `LANGSMITH_*` (secrets for the key) · `SLACK_ALERT_WEBHOOK_URL` (secret).
 
-**Why this matters**:
+## Adding your own
 
-- Boot-time validation: missing required vars fail with a clear error message naming the plugin.
-- `ctx.config` is typed — no string-typing roulette.
-- The runtime can show users the full required env (every plugin's vars) in one place.
+1. Declare it in the plugin's `configSchema` (never read `env` directly in tool code).
+2. Non-secret → `vars` in `wrangler.jsonc`. Secret → `.dev.vars` and `wrangler secret put`.
+3. Document it in `.dev.vars.example` if it is a secret.
+4. Regenerate the env types if you use them: `pnpm cf-typegen`.
 
-## Gating plugins on env (`autoDetect`)
+## Which script needs what
 
-If a plugin should only load when its env is present, gate it:
-
-```ts
-override autoDetect(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.CLIMATE_API_URL && env.CLIMATE_API_KEY);
-}
-override readonly autoDetectHint = 'CLIMATE_API_URL + CLIMATE_API_KEY';
-```
-
-The `autoDetectHint` is surfaced in boot logs (`✗ climate (disabled: needs CLIMATE_API_URL + CLIMATE_API_KEY)`) so operators know what to set.
-
-Alternative: force on/off via the `features` slot in `createOracleApp`:
-
-```ts
-features: {
-  climate: true,              // force on regardless of autoDetect
-  weather: false,             // force off
-  composio: 'auto',           // (default) — run autoDetect
-}
-```
-
-## `.env` files
-
-- `.env` — local secrets, **never commit**.
-- `.env.example` — template with every variable (placeholder values). Commit this.
-- The starter ships both pre-populated for the bundled set.
-
-## Source of truth
-
-- https://docs.ixo.world/build-an-oracle/reference/environment-variables
-- https://docs.ixo.world/build-an-oracle/build/plugin-recipes/add-config-and-env
+The gateway script (`wrangler.gateway.jsonc`) needs only the identity and Matrix vars plus three secrets: `MATRIX_ORACLE_ADMIN_PASSWORD`, `MATRIX_RECOVERY_PHRASE`, `MATRIX_VALUE_PIN`. Everything else belongs to the oracle script. Locally, `pnpm dev` runs both and both read `.dev.vars`.

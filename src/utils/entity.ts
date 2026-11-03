@@ -548,7 +548,7 @@ export class CreateEntity {
 
   private async submitToDomainIndexer(entityDid: string): Promise<void> {
     const network = (this.config.getValue("network") as NETWORK) ?? "devnet";
-    const indexerUrl = DOMAIN_INDEXER_URL[network];
+    const indexerUrl = `${DOMAIN_INDEXER_URL[network]}/index`;
 
     try {
       const response = await fetch(indexerUrl, {
@@ -796,7 +796,7 @@ export class CreateEntity {
         `Failed to setup encryption key: ${error instanceof Error ? error.message : String(error)}`,
       );
       log.warn(
-        "You can set it up later using: oracles-cli setup-encryption-key",
+        "You can set it up later using: qiforge-cli setup-encryption-key",
       );
     }
 

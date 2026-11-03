@@ -1,0 +1,55 @@
+{
+  // {{name}} — the Matrix gateway script: only the bot object (E2EE crypto
+  // store, /sync loop, room → user routing). The oracle script
+  // (wrangler.jsonc) binds `MATRIX_GATEWAY` here via `script_name`;
+  // `USER_ORACLE` below points back at it.
+  //
+  // Deploy this script first on a fresh deployment. It needs only three
+  // secrets: MATRIX_ORACLE_ADMIN_PASSWORD, MATRIX_RECOVERY_PHRASE and
+  // MATRIX_VALUE_PIN (`wrangler secret put <NAME> -c wrangler.gateway.jsonc`).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{{gatewayWorkerName}}",
+  "main": "src/gateway.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  // See wrangler.jsonc: smaller bundle, smaller isolate heap.
+  "minify": true,
+  "observability": { "enabled": true },
+  // No public URL: the oracle script reaches the gateway through its binding.
+  "workers_dev": false,
+  // The bot SDK's keep-alive alarm is one long invocation and a first boot
+  // runs the crypto init; both exceed the default 30 s Durable Object CPU
+  // limit. Needs the Workers Paid plan.
+  "limits": { "cpu_ms": 300000 },
+  "alias": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "@ixo/matrix-bot-workers-sdk/crypto-wasm-shim",
+  },
+  // Keep-alive safety net for the gateway's sync loop.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "durable_objects": {
+    "bindings": [
+      { "name": "MATRIX_GATEWAY", "class_name": "MatrixGatewayDO" },
+      {
+        "name": "USER_ORACLE",
+        "class_name": "UserOracleDO",
+        "script_name": "{{workerName}}",
+      },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MatrixGatewayDO"] }],
+  // The gateway reads only the identity, auth and Matrix variables.
+  "vars": {
+    "ORACLE_NAME": {{oracleNameJson}},
+    "NETWORK": "{{network}}",
+    "ORACLE_DID": "{{oracleDid}}",
+    "ORACLE_ENTITY_DID": "{{entityDid}}",
+    "BLOCKSYNC_GRAPHQL_URL": "{{blocksyncUrl}}",
+    "MATRIX_BASE_URL": "{{matrixBaseUrl}}",
+    "MATRIX_HOMESERVER_NAME": "{{matrixServerName}}",
+    "MATRIX_ORACLE_ADMIN_USER_ID": "{{matrixUserId}}",
+    "MATRIX_ACCOUNT_ROOM_ID": "{{matrixRoomId}}",
+    "LOG_LEVEL": "info",
+    // Group rooms (more than two members): the bot stays silent there.
+    "MATRIX_GROUP_ROOMS": "silent",
+  },
+}

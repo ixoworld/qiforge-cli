@@ -3,6 +3,10 @@ import { NETWORK } from "@ixo/signx-sdk/types/types/transact";
 import { z } from "zod";
 import { RuntimeConfig } from "./runtime-config";
 
+// Per-network service endpoints live in a dependency-free module (unit tests
+// import it without pulling in @clack/prompts); re-exported here.
+export * from "./network-endpoints";
+
 export const selectNetwork = async (config: RuntimeConfig) => {
   const network = await select({
     message: "Select network: (default: devnet)",
@@ -38,12 +42,6 @@ export const PARENT_PROTOCOL_DID: Record<NETWORK, string> = {
   mainnet: "did:ixo:entity:a4dee98213e19f15e02e59873a0d9548",
 };
 
-export const MatrixHomeServerUrl: Record<NETWORK, string> = {
-  devnet: "https://devmx.ixo.earth",
-  testnet: "https://testmx.ixo.earth",
-  mainnet: "https://mx.ixo.earth",
-};
-
 export const MatrixRoomBotServerUrl: Record<NETWORK, string> = {
   devnet: "https://rooms.bot.devmx.ixo.earth",
   testnet: "https://rooms.bot.testmx.ixo.earth",
@@ -67,33 +65,6 @@ export const CHAIN_RPC = {
   devnet: "https://devnet.ixo.earth/rpc/",
 };
 
-export const DOMAIN_INDEXER_URL: Record<NETWORK, string> = {
-  devnet: "https://domain-indexer.devnet.ixo.earth/index",
-  testnet: "https://domain-indexer.testnet.ixo.earth/index",
-  mainnet: "https://domain-indexer.ixo.earth/index",
-};
-export const BLOCKSYNC_GRAPHQL_URL: Record<NETWORK, string> = {
-  devnet: 'https://devnet-blocksync-graphql.ixo.earth/graphql',
-  testnet: 'https://testnet-blocksync-graphql.ixo.earth/graphql',
-  mainnet: 'https://blocksync-graphql.ixo.earth/graphql',
-};
-
-export const MEMORY_ENGINE_API = {
-  devnet: "https://memory-engine.devnet.ixo.earth",
-  testnet: "https://memory-engine.testnet.ixo.earth",
-  mainnet: "https://memory-engine.ixo.earth",
-};
-export const MEMORY_ENGINE_MCP = {
-  devnet: "https://mcp-memory-engine.devnet.ixo.earth/mcp",
-  testnet: "https://mcp-memory-engine.testnet.ixo.earth/mcp",
-  mainnet: "https://mcp-memory-engine.ixo.earth/mcp",
-};
-
-export const SANDBOX_API = {
-  devnet: "https://ai-sandbox-devnet.ixo.earth/mcp",
-  testnet: "https://ai-sandbox-testnet.ixo.earth/mcp",
-  mainnet: "https://ai-sandbox.ixo.earth/mcp",
-};
 export const SUBSCRIPTION_API = {
   devnet: "https://subscriptions-api.ixo-api.workers.dev",
   testnet: "https://subscriptions-api-testnet.ixo-api.workers.dev/",

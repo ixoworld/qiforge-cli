@@ -20,18 +20,21 @@ src/
 ├── cli.ts                    # Main CLI entry point (CLIManager)
 ├── commands/                 # Command implementations
 │   ├── index.ts             # Command interface and registry
-│   ├── init.command.ts      # Project initialization
+│   ├── new.command.ts       # Provision an oracle + scaffold its Workers project
+│   ├── plugin-new.command.ts  # Scaffold a plugin into an oracle project
 │   ├── create-entity-command.ts  # Blockchain entity creation
+│   ├── setup-signing-key.command.ts  # Ed25519 UCAN signing key for older oracles
 │   ├── offline-login.command.ts  # Offline wallet authentication
-│   ├── chat.command.ts      # Chat with oracle
 │   ├── signX.commands.ts    # SignX authentication
 │   └── logout.commands.ts   # Logout functionality
+├── templates/               # basic (Workers oracle) and plugin templates
 ├── types/                   # TypeScript interfaces
 │   └── index.ts
 ├── utils/                   # Shared utilities
 │   ├── wallet.ts           # Wallet management
 │   ├── runtime-config.ts   # Configuration management
-│   ├── oracle-config.ts    # oracle.config.json save/load
+│   ├── oracle-project.ts   # Scaffold template vars, .dev.vars, oracle-credentials.env
+│   ├── runtime-versions.ts # The pinned runtime release and its companion versions
 │   ├── cli-flags.ts        # CLI flag parser (--key value)
 │   ├── errors.ts           # Error handling
 │   └── ...                 # Other utilities
@@ -233,29 +236,25 @@ const error = checkRequiredNumber(parseInt(value), 'Must be a number');
 
 ## Existing Commands Reference
 
-### 1. InitCommand (`init.command.ts`)
+### 1. NewCommand (`new.command.ts`)
 
-- **Purpose**: Initializes new IXO Oracle projects
+- **Purpose**: Provisions an oracle and scaffolds its Cloudflare Workers project
 - **Dependencies**: `RuntimeConfig`, `Wallet`, `CreateEntityCommand`, `parseCliFlags`
 - **Key Features**:
-  - Project directory creation
-  - Repository cloning
-  - Entity creation (delegates to `CreateEntityCommand`)
-  - Environment file generation
-  - Full non-interactive mode via `--no-interactive` with `--name`, `--path`, `--repo`, `--force` flags
+  - Renders `src/templates/basic` with `SCAFFOLD_VERSIONS`: one exact `@ixo/oracle-runtime-workers` release and the companion versions from its npm manifest
+  - Entity, DID (with the Ed25519 UCAN signing key) and Matrix account (delegates to `CreateEntityCommand`)
+  - Re-renders `wrangler.jsonc` / `wrangler.gateway.jsonc` with the provisioned identity; writes `.dev.vars` and `oracle-credentials.env`
+  - `--skip-entity`: scaffold only, no login
+  - Full non-interactive mode via `--no-interactive` with `--name`, `--path`, `--network`, `--pin`, `--install`, `--force`
 
 ### 2. CreateEntityCommand (`create-entity-command.ts`)
 
 - **Purpose**: Creates blockchain entities with linked resources
 - **Dependencies**: `Wallet`, `RuntimeConfig`, `CreateEntity` utility, `parseCliFlags`
 - **Key Features**:
-  - Oracle profile creation
-  - Linked resources setup
-  - Matrix integration
-  - LLM model selection (interactive or via `--model` flag)
-  - Prompt configuration (opening, style, capabilities)
-  - MCP server configuration
-  - Saves `oracle.config.json` after entity creation
+  - Oracle profile, domain card, Agent Card, AuthZ config, P-256 encryption key
+  - The oracle's own DID with its Ed25519 UCAN signing key, and its Matrix account and account room
+  - Relayer node selection
   - Full non-interactive mode via `--no-interactive` with CLI flags
 
 ### 3. OfflineLoginCommand (`offline-login.command.ts`)
@@ -305,16 +304,32 @@ const noInteractive = flags['no-interactive'] === 'true';
 const name = flags.name ?? await p.text({ message: 'Enter name:' });
 ```
 
-## Oracle Config (`oracle.config.json`)
+## Scaffold templates
 
-The `saveOracleConfig()` and `loadOracleConfig()` functions in `src/utils/oracle-config.ts` manage the oracle configuration file. It is written to both the project root and `apps/app/` (for Docker builds).
+`src/templates/basic` is the Workers oracle template, `src/templates/plugin` the plugin template; `build.mjs` copies both to `dist/templates`.
 
-Schema includes extended fields for AI configuration:
+- Files ending in `.tmpl` get `{{placeholder}}` substitution (an unknown placeholder throws); other files are copied as they are. Template `.ts` files always end in `.tmpl` so the CLI's own `tsc`, jest and eslint skip them.
+- `_gitignore` is written as `.gitignore`: npm never publishes a file named `.gitignore`.
+- `src/__tests__/templates.test.ts` renders both templates and checks the output. To prove a template change end to end, scaffold into a temp dir and run the project's own checks:
 
-- `prompt` — opening message, communication style, capabilities
-- `model` — LLM model identifier (e.g. `moonshotai/kimi-k2.5`)
-- `skills` / `customSkills` — skill arrays
-- `mcpServers` — array of `{ url, name? }` for MCP server integration
+```bash
+pnpm build
+node dist/cli.js new --no-interactive --name demo --path /tmp/demo --skip-entity
+cd /tmp/demo && pnpm install && pnpm typecheck && pnpm test && pnpm run build && pnpm dev
+```
+
+### Moving the scaffold to a new runtime release
+
+The template pins one exact `@ixo/oracle-runtime-workers` release (`SCAFFOLD_VERSIONS` in `src/utils/runtime-versions.ts`), never npm `latest`: a bad release can sit on `latest` (0.36.0 shipped a change 0.36.1 reverted).
+
+1. Read the runtime's CHANGELOG from the pinned version up for new bindings, migrations, aliases or required vars, and update the wrangler templates and the bundled skill.
+2. `npm view @ixo/oracle-runtime-workers@<version> --json`: copy `version`, the bot SDK and `zod` from `dependencies` and `wrangler`, `@cloudflare/workers-types` and `vitest` from `devDependencies` into `SCAFFOLD_VERSIONS` and into the manifest fixture of `src/__tests__/runtime-versions.test.ts`.
+3. Run the end-to-end check above under a throwaway `HOME` (the CLI keeps its login in `~/.wallet.json`), including `pnpm run build` and `pnpm dev` with `/health`, and check the minified oracle bundle holds one copy of yjs and no character above U+00FF:
+
+```bash
+grep -c "Yjs was already imported" dist/oracle/index.js    # 1
+node -e "const s=require('fs').readFileSync('dist/oracle/index.js','utf8');console.log((s.match(/[^\u0000-\u00ff]/g)||[]).length)"   # 0
+```
 
 ## Testing Commands
 

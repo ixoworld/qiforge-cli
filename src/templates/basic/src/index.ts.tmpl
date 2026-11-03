@@ -1,0 +1,37 @@
+/**
+ * {{name}} — a QiForge oracle on Cloudflare Workers.
+ *
+ * `createOracleWorker` gives the oracle its HTTP/SSE shell (every request is
+ * authenticated with a UCAN invocation), one Durable Object per user
+ * (`UserOracleDO`: the user's SQLite working copy and the agent turn) and the
+ * Matrix gateway object (`MatrixGatewayDO`: the bot's E2EE identity and sync
+ * loop). The gateway runs as its own Worker script from `src/gateway.ts`
+ * (`wrangler.gateway.jsonc`); the `MATRIX_GATEWAY` binding in `wrangler.jsonc`
+ * points there, so the `MatrixGatewayDO` export below stays unbound in this
+ * script.
+ */
+import {
+  BUNDLED_WORKERS_PLUGINS,
+  createOracleWorker,
+} from '@ixo/oracle-runtime-workers';
+import { config } from './config';
+
+const oracle = createOracleWorker({
+  config,
+  // The bundled plugins (memory, sandbox, firecrawl, domain-indexer, composio,
+  // vfs, tasks, editor, portal, …) each gate themselves on their env keys;
+  // those without configuration leave themselves out. `SkillsPlugin`,
+  // `FlowsPlugin` and `IxoTransactionPlugin` are exported but opt-in:
+  // construct them here to add them. Your own plugins go here too
+  // (`qiforge-cli plugin new <name>` scaffolds one under src/plugins/).
+  plugins: [...BUNDLED_WORKERS_PLUGINS],
+});
+
+// Durable Object classes must be exported by name from the Worker entry:
+// wrangler binds `USER_ORACLE` / `MATRIX_GATEWAY` to them.
+export const { UserOracleDO, MatrixGatewayDO } = oracle;
+
+export default {
+  fetch: oracle.fetch,
+  scheduled: oracle.scheduled,
+};

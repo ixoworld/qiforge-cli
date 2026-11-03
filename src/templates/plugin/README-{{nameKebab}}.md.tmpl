@@ -19,26 +19,25 @@ TODO: one-sentence summary of what this plugin does.
 
 | Tool | Description |
 | --- | --- |
-| `{{nameCamel}}_echo` | Echoes the provided message. Sample tool — replace. |
+| `{{nameSnake}}_echo` | Echoes the provided message. Sample tool — replace. |
 
 ## Configuration
 
-This plugin currently declares an empty `configSchema`. Add any required env
-vars in `{{nameKebab}}.plugin.ts` so the runtime validates them at boot.
+This plugin currently declares an empty `configSchema`. Add its env vars in
+`{{nameKebab}}.plugin.ts`; the runtime validates them at boot. Non-secret
+values go in the `vars` of `wrangler.jsonc`, secrets in `.dev.vars` locally
+and `wrangler secret put <NAME>` for a deployment.
 
 ## Registering
 
-Wire this plugin into your oracle in `src/main.ts`:
+Wire this plugin into your oracle in `src/index.ts`:
 
 ```ts
-import { {{nameClass}}Plugin } from './plugins/{{nameKebab}}/{{nameKebab}}.plugin.js';
+import { {{nameClass}}Plugin } from './plugins/{{nameKebab}}/{{nameKebab}}.plugin';
 
-await createOracleApp({
+const oracle = createOracleWorker({
   config,
-  plugins: [
-    // ...other plugins
-    new {{nameClass}}Plugin(),
-  ],
+  plugins: [...BUNDLED_WORKERS_PLUGINS, new {{nameClass}}Plugin()],
 });
 ```
 

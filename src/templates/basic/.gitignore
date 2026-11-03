@@ -1,5 +1,0 @@
-dist
-.data
-.env
-*.tsbuildinfo
-node_modules

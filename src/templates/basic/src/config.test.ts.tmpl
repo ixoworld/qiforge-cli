@@ -1,0 +1,30 @@
+import { composePrompt } from '@ixo/oracle-runtime-workers/prompt';
+import { describe, expect, it } from 'vitest';
+import { config } from './config';
+
+/**
+ * The prompt contract: compose the system prompt the way the runtime does
+ * and check that this oracle's own slots land in it. Runs in plain Node
+ * (vitest), no workerd needed — `@ixo/oracle-runtime-workers/prompt` is the
+ * runtime's pure prompt composer.
+ */
+describe('config', () => {
+  it('names the oracle in its opening', () => {
+    expect(config.prompt.opening).toContain(config.name);
+  });
+
+  it('opens the composed system prompt and carries every slot verbatim', async () => {
+    const prompt = await composePrompt({
+      identity: { ...config, entityDid: 'did:ixo:entity:00000000000000000000000000000000' },
+      capabilityBlock: '',
+      customInstructions: '',
+      operationalMode: 'General conversation',
+      userPreferencesContext: '',
+      userContext: undefined,
+      timeContext: 'Monday, 2 November 2026 (UTC)',
+      currentEntityDid: '',
+    });
+    expect(prompt.startsWith(config.prompt.opening)).toBe(true);
+    for (const slot of Object.values(config.prompt)) expect(prompt).toContain(slot);
+  });
+});

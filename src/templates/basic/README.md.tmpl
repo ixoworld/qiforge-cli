@@ -2,27 +2,65 @@
 
 {{description}}
 
-Built with [QiForge](https://github.com/ixoworld/qiforge) on top of `@ixo/oracle-runtime`.
+A [QiForge](https://github.com/ixoworld/qiforge) oracle on Cloudflare Workers, built on [`@ixo/oracle-runtime-workers`](https://www.npmjs.com/package/@ixo/oracle-runtime-workers). Scaffolded by `qiforge-cli new`.
 
 ## Requirements
 
-- Node.js >= 22 (Node 24 supported)
-- pnpm >= 10
-
-> **Node 24 note:** the `pnpm.overrides` in `package.json` pins
-> `@digitalbazaar/http-client` to v4 to avoid a startup crash caused by
-> `esm@3` (a transitive dependency of `@veramo/credential-ld`) being
-> incompatible with Node 24's module loader. Do not remove it.
+- Node.js >= 22 and pnpm >= 10
+- A Cloudflare account on the Workers Paid plan to deploy (local development needs no account)
+- An `OPEN_ROUTER_API_KEY`
 
 ## Quickstart
 
 ```bash
 pnpm install
-cp .env.example .env       # fill in MATRIX_*, ORACLE_ENTITY_DID, LLM keys
-pnpm dev                   # tsx watch src/main.ts
+# qiforge-cli new wrote .dev.vars; add your OPEN_ROUTER_API_KEY to it
+# (scaffolded with --skip-entity? cp .dev.vars.example .dev.vars and fill in
+#  the identity vars in both wrangler configs first)
+pnpm dev
+curl http://localhost:8787/health
 ```
 
-The oracle listens on `PORT` (default 3000).
+## Layout
+
+```
+src/
+├── index.ts          # the oracle Worker — createOracleWorker + the Durable Object exports
+├── gateway.ts        # the Matrix gateway Worker — createGatewayWorker
+├── config.ts         # identity + prompt slots
+├── config.test.ts    # the composed system prompt carries those slots
+└── plugins/          # your plugins (qiforge-cli plugin new <name>)
+test/                 # the test Worker the unit tests run in
+wrangler.jsonc          # oracle script: vars, bindings, rate limit, crons
+wrangler.gateway.jsonc  # gateway script
+.dev.vars             # secrets for wrangler dev — never commit
+oracle-credentials.env  # the oracle's wallet mnemonic and Matrix credentials — back up, never commit
+```
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | `wrangler dev` with both scripts on http://localhost:8787 |
+| `pnpm test` | Unit tests inside workerd (`@cloudflare/vitest-plugin`) |
+| `pnpm typecheck` | Type-check without emitting |
+| `pnpm run build` | `wrangler deploy --dry-run` for both scripts (bundles into `dist/`) |
+| `pnpm run deploy` | Deploy the gateway script, then the oracle script |
+| `pnpm cf-typegen` | Generate `worker-configuration.d.ts` from `wrangler.jsonc` |
+
+## Deploy
+
+```bash
+pnpm exec wrangler login
+pnpm run deploy
+pnpm exec wrangler secret bulk .dev.vars                                   # oracle script
+pnpm exec wrangler secret put MATRIX_ORACLE_ADMIN_PASSWORD -c wrangler.gateway.jsonc
+pnpm exec wrangler secret put MATRIX_RECOVERY_PHRASE -c wrangler.gateway.jsonc
+pnpm exec wrangler secret put MATRIX_VALUE_PIN -c wrangler.gateway.jsonc
+qiforge-cli update-oracle-api-url                                          # point the entity at the deployed URL
+```
+
+Both wrangler configs set `"minify": true`: the minified bundle leaves the user objects far more of their 128 MB isolate heap. Keep it on.
 
 ## Adding a plugin
 
@@ -30,34 +68,17 @@ The oracle listens on `PORT` (default 3000).
 qiforge-cli plugin new my-plugin
 ```
 
-Scaffolds `src/plugins/my-plugin/` with a class skeleton + tests. Register the
-generated plugin in `src/main.ts`:
+Scaffolds `src/plugins/my-plugin/` with a sample tool and tests. Register it in `src/index.ts`:
 
 ```ts
-import { MyPluginPlugin } from './plugins/my-plugin/my-plugin.plugin.js';
+import { MyPluginPlugin } from './plugins/my-plugin/my-plugin.plugin';
 
-await createOracleApp({
+const oracle = createOracleWorker({
   config,
-  plugins: [new EditorPlugin({ matrixClient }), new MyPluginPlugin()],
+  plugins: [...BUNDLED_WORKERS_PLUGINS, new MyPluginPlugin()],
 });
 ```
 
-## Layout
+## Upgrading the runtime
 
-```
-src/
-├── main.ts       # bootstrap — createOracleApp + listen
-├── config.ts     # oracle identity + system prompt
-└── plugins/      # your custom plugins
-.env              # secrets — never commit
-```
-
-## Scripts
-
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Hot-reload dev server (tsx watch). |
-| `pnpm build` | Compile TypeScript → `dist/`. |
-| `pnpm start` | Run the compiled build. |
-| `pnpm typecheck` | Type-check without emit. |
-| `pnpm test` | Run unit tests. |
+Bump `@ixo/oracle-runtime-workers` and set `@ixo/matrix-bot-workers-sdk` to the exact version that release depends on (`npm view @ixo/oracle-runtime-workers@<version> dependencies`), then `pnpm install && pnpm typecheck && pnpm test && pnpm run build`.

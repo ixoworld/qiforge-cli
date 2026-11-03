@@ -1,364 +1,140 @@
 # QiForge CLI
 
-A command-line interface for creating and managing IXO Oracle projects. This CLI helps you set up AI Agent oracles built with LangGraph, using Matrix as a datastore with linked resources stored on the IXO blockchain.
+Provision QiForge oracles on the IXO network and scaffold their projects on Cloudflare Workers.
 
-## What is QiForge CLI?
-
-The QiForge CLI automates the complete setup of AI Agent oracle projects. It handles:
-
-- **Blockchain Integration**: Creates entities on the IXO blockchain with linked resources stored in Matrix
-- **Matrix Account Creation**: Sets up Matrix accounts for data storage and communication
-- **Project Initialization**: Clones the [QiForge boilerplate](https://github.com/ixoworld/qiforge) and configures the environment
-- **Authentication**: Supports two modes — SignX (QR code via IXO Mobile App) or offline wallet (local mnemonic)
-- **Non-interactive Mode**: Full CI/CD support with `--no-interactive` flag and CLI flags for all parameters
+`qiforge-cli new` creates the oracle's on-chain identity (entity, DID with its Ed25519 UCAN signing key, Matrix bot account, account room, encryption key, domain card, Agent Card) and scaffolds a Worker on [`@ixo/oracle-runtime-workers`](https://www.npmjs.com/package/@ixo/oracle-runtime-workers) with that identity already wired into its wrangler configs and `.dev.vars`.
 
 ## Prerequisites
 
-- Node.js 22+
-- IXO Mobile App (for SignX authentication) **or** a mnemonic phrase (for offline mode)
+- Node.js 22+ and pnpm 10+
+- To provision: the IXO Mobile App (SignX login) **or** a wallet mnemonic (offline login), with some IXO on the chosen network
+- To deploy the oracle: a Cloudflare account on the Workers Paid plan
 
 ## Installation
 
-Install the CLI globally using npm:
-
 ```bash
 npm install -g qiforge-cli
+# or
+pnpm add -g qiforge-cli    # then `pnpm approve-builds -g` and approve protobufjs
 ```
 
-Or with pnpm:
+## Quick start
 
 ```bash
-pnpm add -g qiforge-cli
+qiforge-cli new                 # log in, answer the prompts, provision + scaffold
+cd my-oracle
+pnpm install                    # unless you let `new` do it
+# add OPEN_ROUTER_API_KEY to .dev.vars
+pnpm dev                        # wrangler dev → http://localhost:8787/health
 ```
 
-**Important for pnpm users:** After installation, you need to approve build scripts:
+Scaffold only — no login, nothing on chain or Matrix (the wrangler configs get placeholder identity values):
 
 ```bash
-pnpm approve-builds -g
+qiforge-cli new --no-interactive --name my-oracle --network devnet --skip-entity
 ```
 
-When prompted, select `protobufjs` and approve it:
+## What `new` scaffolds
 
 ```
-✔ Choose which packages to build · protobufjs
-✔ The next packages will now be built: protobufjs.
-Do you approve? (y/N) · true
+my-oracle/
+├── src/index.ts              # createOracleWorker({ config, plugins }) + export { UserOracleDO, MatrixGatewayDO }
+├── src/gateway.ts            # createGatewayWorker() — the Matrix gateway as its own script
+├── src/config.ts             # identity + prompt slots
+├── src/config.test.ts        # the composed system prompt carries those slots
+├── src/plugins/              # your plugins (qiforge-cli plugin new <name>)
+├── test/                     # the Worker the unit tests run in (workerd vitest pool)
+├── wrangler.jsonc            # oracle script: vars, Durable Objects, rate limit, crons, aliases, minify
+├── wrangler.gateway.jsonc    # gateway script
+├── .dev.vars                 # the Worker's secrets (written by `new`; gitignored)
+├── .dev.vars.example
+├── oracle-credentials.env    # the oracle's wallet mnemonic + Matrix credentials (gitignored; back it up)
+├── agent-card.json           # local copy of the published Agent Card
+└── .claude/skills/qiforge-oracle/   # Claude Code skill for the Workers runtime
 ```
 
-Or with yarn:
-
-```bash
-yarn global add qiforge-cli
-```
-
-## Quick Start
-
-1. **Initialize a new oracle project:**
-
-   ```bash
-   qiforge-cli --init
-   ```
-
-2. **Or run the interactive CLI:**
-
-   ```bash
-   qiforge-cli
-   ```
-
-3. **Follow the prompts:**
-   - Choose authentication: SignX (QR code) or Offline (local mnemonic)
-   - Enter your project name
-   - Select the template (QiForge boilerplate or custom)
-   - Configure your oracle details (name, profile, LLM model, prompts, etc.)
-
-## Authentication
-
-The CLI supports two authentication modes:
-
-### SignX (Default)
-
-Uses the IXO Mobile App for QR code-based authentication. Keep your app open during the session.
-
-```bash
-qiforge-cli
-# Select "SignX Wallet (QR code with mobile app)" when prompted
-```
-
-### Offline Wallet
-
-Uses a local mnemonic phrase for authentication. No mobile app needed.
-
-```bash
-# Interactive
-qiforge-cli offline-login
-
-# Non-interactive (CI/CD)
-qiforge-cli offline-login --network devnet --mnemonic "your twelve word mnemonic phrase here" --matrixPassword "your-matrix-password"
-```
-
-**Offline login flags:**
-
-| Flag               | Description                                      |
-| ------------------ | ------------------------------------------------ |
-| `--network`        | Network to use (`devnet`, `testnet`, `mainnet`)  |
-| `--mnemonic`       | Mnemonic phrase for wallet derivation             |
-| `--matrixPassword`  | Matrix account password                           |
-| `--name`           | Display name (falls back to Matrix profile name)  |
+- The runtime is pinned exactly to the release this CLI version was verified with (`@ixo/oracle-runtime-workers` 0.37.0, which carries the long-thread isolate-memory fixes), with `@ixo/matrix-bot-workers-sdk` at the exact version that release depends on; `wrangler`, `vitest` and the Workers types follow the runtime's own ranges. A newer runtime reaches scaffolds through a CLI release.
+- Two Worker scripts, oracle and gateway, so the Matrix bot never shares an isolate's 128 MB heap with the user objects. Both configs set `"minify": true` (wrangler keeps class and function names when minifying), `nodejs_compat`, the crypto-wasm and jsdom aliases, and `limits.cpu_ms: 300000`.
+- `pnpm dev` runs both scripts locally; `pnpm run deploy` deploys the gateway, then the oracle; `pnpm run build` is the `wrangler deploy --dry-run` of both.
 
 ## Commands
 
-### `qiforge-cli --init` - Initialize Project
+| Command | What it does |
+| --- | --- |
+| `new` | Provision an oracle and scaffold its Workers project (`--skip-entity`: scaffold only) |
+| `plugin new <name>` | Scaffold a plugin (tool + workerd tests) into the current oracle project |
+| `create-entity` | Provision an oracle entity, DID and Matrix account without scaffolding |
+| `update-entity` | Add a controller to an entity |
+| `update-oracle-api-url` | Point the entity's `#api` / `#ws` services at the deployed Worker URL |
+| `agent-card` | Author, validate and publish (or replace) an Agent Card |
+| `setup-encryption-key` | Add the P-256 key-agreement key (per-room secrets) to an older oracle |
+| `setup-signing-key` | Add the Ed25519 UCAN signing key to an older oracle (see below) |
+| `dashboard-access` | Link an oracle to a developer console account |
+| `create-user` | Create a user account (wallet, DID, Matrix) |
+| `create-composio-key` | Mint a Composio API key for an oracle |
+| `offline-login` / `logout` | Log in with a local mnemonic / clear the session |
+| `--help`, `--version` | Help and version |
 
-Creates a new IXO Oracle project with all necessary components:
+Run `qiforge-cli --help` for every flag.
 
-- **Project Setup**: Creates directory and clones the QiForge boilerplate
-- **Entity Creation**: Creates a blockchain entity with linked resources stored in Matrix
-- **Matrix Account**: Sets up Matrix account for data storage
-- **Oracle Config**: Saves `oracle.config.json` with oracle metadata, LLM model, and prompt settings
-- **Environment Configuration**: Creates `.env` file with all necessary variables
-
-### `qiforge-cli` - Interactive Menu
-
-Launches an interactive menu with the following options:
-
-- **init** - Initialize a new project
-- **create-entity** - Create a blockchain entity
-- **chat** - Chat with the oracle
-- **logout** - Sign out
-
-### Other Commands
-
-| Command              | Description                                              |
-| -------------------- | -------------------------------------------------------- |
-| `create-entity`      | Create an entity with oracle profile, linked resources   |
-| `chat`               | Chat with the oracle                                     |
-| `offline-login`      | Login with a local mnemonic (offline wallet)             |
-| `logout`             | Clear your authentication session                        |
-| `--help`, `-h`       | Show help information and available commands             |
-
-## Non-interactive Mode (CI/CD)
-
-Both `init` and `create-entity` support a `--no-interactive` flag for fully automated pipelines. All parameters can be passed as CLI flags.
-
-### Init (non-interactive)
+### Non-interactive `new`
 
 ```bash
-qiforge-cli --init --no-interactive \
-  --name my-oracle-project \
-  --network devnet \
-  --oracle-name "My Oracle" \
-  --api-url http://localhost:4000 \
-  --pin 123456
+qiforge-cli new --no-interactive \
+  --name my-oracle --network devnet \
+  --description "Answers questions about my project" --org "My Org" \
+  --pin 123456 --install
 ```
 
-**Init flags:**
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--name` | project and oracle name (required) | — |
+| `--path` | target directory | `./<name>` |
+| `--network` | `devnet`, `testnet` or `mainnet` | `devnet` |
+| `--description`, `--org` | identity | `An oracle built with QiForge.`, `IXO` |
+| `--pin` | 6-digit PIN that encrypts the oracle's secrets in its account room | prompted |
+| `--install` | run `pnpm install` | off |
+| `--force` | overwrite a non-empty directory | off |
+| `--skip-entity` | scaffold only: no login, no entity, no Matrix account | off |
 
-| Flag           | Description                                     | Default                                |
-| -------------- | ----------------------------------------------- | -------------------------------------- |
-| `--name`       | Project name (required in non-interactive mode)  | —                                      |
-| `--path`       | Project directory path                           | `./<name>`                             |
-| `--repo`       | Template repository URL                          | `git@github.com:ixoworld/qiforge.git` |
-| `--force`      | Overwrite existing directory                     | `false`                                |
+In non-interactive mode no Agent Card is published; publish one later with `qiforge-cli agent-card`.
 
-### Create Entity (non-interactive)
+## The oracle's UCAN signing key
+
+The Workers runtime signs every call it makes to IXO services (the user's owner copy in the VFS, the memory engine, the sandbox) with an Ed25519 key, and those services verify it against the oracle's DID document. `new` and `create-entity` generate that key, put its public key on the oracle's DID at creation, and store the mnemonic PIN-encrypted in the oracle's account room (`ixo.room.state.secure` / `encrypted_mnemonic_ed_signing`), where the runtime reads it.
+
+Oracles created by CLI versions before 2.0.0 carry only secp256k1 keys (the Node runtime used to add the Ed25519 key on its first boot; the Workers runtime does not). Give them the key with:
 
 ```bash
-qiforge-cli create-entity --no-interactive \
-  --network devnet \
-  --oracle-name "My Oracle" \
-  --org-name "My Org" \
-  --description "Oracle description" \
-  --api-url http://localhost:4000 \
-  --model "anthropic/claude-sonnet-4" \
-  --pin 123456
+qiforge-cli setup-signing-key --env oracle-credentials.env   # or a Node-era .env with SECP_MNEMONIC + MATRIX_* + MATRIX_VALUE_PIN
 ```
 
-**Create entity flags:**
+It needs no user login: the oracle's own account signs the `MsgAddVerification` (and pays its fee).
 
-| Flag                    | Description                                       | Default                           |
-| ----------------------- | ------------------------------------------------- | --------------------------------- |
-| `--network`             | Network (`devnet`, `testnet`, `mainnet`)           | `devnet`                          |
-| `--oracle-name`         | Oracle name                                        | `My oracle`                       |
-| `--org-name`            | Organization name                                  | `IXO`                             |
-| `--logo`                | Logo URL                                           | Auto-generated from oracle name   |
-| `--cover-image`         | Cover image URL                                    | Same as logo                      |
-| `--location`            | Location string                                    | `New York, NY`                    |
-| `--description`         | Entity description                                 | Default placeholder               |
-| `--website`             | Website URL (optional)                             | —                                 |
-| `--api-url`             | Oracle API URL                                     | `http://localhost:4000`           |
-| `--project-path`        | Project directory for saving config                | Current directory                 |
-| `--pin`                 | 6-digit PIN for Matrix vault                       | Prompted if not provided          |
-| `--model`               | LLM model identifier                               | `moonshotai/kimi-k2.5`           |
-| `--skills`              | Comma-separated skill list                          | —                                 |
-| `--prompt-opening`      | Opening prompt for the oracle                       | —                                 |
-| `--prompt-style`        | Communication style                                 | —                                 |
-| `--prompt-capabilities` | Capabilities description                            | —                                 |
-| `--mcp-servers`         | JSON array of MCP servers (`[{"url":"..."}]`)       | —                                 |
+## Authentication
 
-## Oracle Configuration
+- **SignX** (default): QR code with the IXO Mobile App; keep the app open, every transaction is approved on the phone.
+- **Offline**: `qiforge-cli offline-login` with a mnemonic; transactions are signed locally.
 
-After entity creation, the CLI saves an `oracle.config.json` file in your project root (and `apps/app/`) with oracle metadata:
-
-```json
-{
-  "oracleName": "My Oracle",
-  "orgName": "IXO",
-  "description": "Oracle description",
-  "location": "New York, NY",
-  "website": "",
-  "apiUrl": "http://localhost:4000",
-  "network": "devnet",
-  "entityDid": "did:ixo:entity:...",
-  "logo": "https://...",
-  "prompt": {
-    "opening": "Welcome! I can help you with...",
-    "communicationStyle": "Friendly and concise",
-    "capabilities": "I can search the web, manage tasks..."
-  },
-  "model": "moonshotai/kimi-k2.5",
-  "skills": [],
-  "customSkills": [],
-  "mcpServers": []
-}
+```bash
+qiforge-cli offline-login --network devnet --mnemonic "…" --matrixPassword "…"
 ```
 
-### Supported LLM Models
+The session is kept in `~/.wallet.json` (`qiforge-cli logout` clears it).
 
-During interactive entity creation, you can choose from:
+## Development
 
-- `moonshotai/kimi-k2.5` (default)
-- `anthropic/claude-sonnet-4`
-- `openai/gpt-4o`
-- `google/gemini-2.5-pro`
-- `meta-llama/llama-4-maverick`
-- Or enter a custom model identifier
-
-## Project Structure
-
-After initialization, your project will have:
-
-```
-your-oracle-project/
-├── oracle.config.json        # Oracle configuration
-├── apps/
-│   └── app/
-│       ├── .env              # Environment configuration
-│       ├── oracle.config.json # Copy for Docker builds
-│       └── ...               # Application files
-├── packages/                 # Shared packages
-└── ...                      # Other project files
+```bash
+pnpm install
+pnpm build        # esbuild → dist/cli.js, templates copied to dist/templates
+pnpm test         # jest
+pnpm lint
+pnpm type-check
+node dist/cli.js new --no-interactive --name demo --skip-entity   # try the scaffold
 ```
 
-## Environment Configuration
-
-The CLI automatically creates a `.env` file with:
-
-```env
-PORT=4000
-ORACLE_NAME=your-oracle-name
-
-# Matrix Configuration
-MATRIX_BASE_URL=https://matrix.ixo.world
-MATRIX_ORACLE_ADMIN_ACCESS_TOKEN=your-access-token
-MATRIX_ORACLE_ADMIN_PASSWORD=your-password
-MATRIX_ORACLE_ADMIN_USER_ID=your-user-id
-
-# AI/ML Services (configure as needed)
-OPENAI_API_KEY=
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_SECRET_KEY=
-LANGFUSE_HOST=https://cloud.langfuse.com
-OPEN_ROUTER_API_KEY=
-
-# Blockchain Details (store securely)
-ORACLE_ADDRESS=your-address
-ORACLE_DID=your-did
-ORACLE_MNEMONIC=your-mnemonic
-MATRIX_VAULT_PIN=your-pin
-ENTITY_DID=your-entity-did
-```
-
-## Authentication Details
-
-The CLI supports two authentication modes:
-
-- **SignX**: Keep your IXO Mobile App open during the login process. All transactions require QR code scanning.
-- **Offline**: Uses a local mnemonic phrase. Transactions are signed locally — no mobile app needed. Credentials are stored in `~/.wallet.json`.
-
-Your session is persisted locally for future use. Run `qiforge-cli logout` to clear it.
-
-## Next Steps
-
-After project initialization:
-
-1. **Navigate to your project:**
-
-   ```bash
-   cd your-project-name
-   ```
-
-2. **Install dependencies:**
-
-   ```bash
-   pnpm install
-   ```
-
-3. **Build the project:**
-
-   ```bash
-   pnpm build
-   ```
-
-4. **Start development:**
-   ```bash
-   cd apps/app
-   pnpm start:dev
-   ```
-
-## Development (Contributing to CLI)
-
-If you want to contribute to the CLI itself:
-
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/ixoworld/ixo-oracles-cli
-   cd ixo-oracles-cli
-   ```
-
-2. **Install dependencies:**
-
-   ```bash
-   pnpm install
-   ```
-
-3. **Build the CLI:**
-
-   ```bash
-   pnpm build
-   ```
-
-4. **Run locally:**
-   ```bash
-   pnpm start
-   ```
-
-**Development Scripts:**
-
-- `pnpm build` - Build the CLI
-- `pnpm dev` - Watch mode for development
-- `pnpm test` - Run tests
-- `pnpm lint` - Lint code
-- `pnpm type-check` - Type check
-
-## Support
-
-For issues and questions:
-
-- Create an issue in the repository
-- Join the IXO Discord community
-- Check the IXO documentation
+The scaffold template is `src/templates/basic`; `src/templates/plugin` is the plugin template. Files ending in `.tmpl` get `{{placeholders}}` substituted; `_gitignore` is written as `.gitignore` (npm never publishes a file named `.gitignore`). See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [License.txt](License.txt) for details.
+Apache License 2.0. See [License.txt](License.txt).

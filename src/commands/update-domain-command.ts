@@ -31,8 +31,8 @@ export class UpdateDomainCommand implements Command {
           }),
         apiUrl: () =>
           p.text({
-            message: 'What is the new API URL (domain) for the oracle?',
-            initialValue: 'http://localhost:4000',
+            message: 'New API URL of the oracle (the deployed Worker, e.g. https://my-oracle.<subdomain>.workers.dev):',
+            initialValue: 'http://localhost:8787',
             validate(value) {
               return checkRequiredURL(value, 'API URL is required and must be a valid URL');
             },

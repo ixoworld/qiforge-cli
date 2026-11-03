@@ -4,20 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-QiForge CLI — a Node.js CLI tool for provisioning AI Agent oracle projects on the IXO blockchain. It creates blockchain entities, provisions Matrix accounts for data storage, and scaffolds oracle projects from the qiforge. Requires Node.js 22+. Supports two authentication modes: SignX (QR code via IXO Mobile App) or offline wallet (local mnemonic + Matrix password).
+QiForge CLI — a Node.js CLI tool for provisioning AI Agent oracles on the IXO blockchain and scaffolding their projects. It creates blockchain entities, the oracle's DID (with its Ed25519 UCAN signing key) and Matrix account, and scaffolds a Cloudflare Workers oracle on `@ixo/oracle-runtime-workers` from the bundled template (`src/templates/basic`). The deprecated Node runtime (`@ixo/oracle-runtime`) is no longer scaffolded. Requires Node.js 22+. Supports two authentication modes: SignX (QR code via IXO Mobile App) or offline wallet (local mnemonic + Matrix password).
 
 ## Build & Development Commands
 
 | Command | Purpose |
 |---|---|
-| `pnpm build` | Build with tsup (single ESM bundle → `dist/cli.js`) |
+| `pnpm build` | Build with esbuild (`build.mjs`: single ESM bundle → `dist/cli.js`, templates copied to `dist/templates`) |
 | `pnpm dev` | Watch mode build |
 | `pnpm start` | Run the built CLI (`node dist/cli.js`) |
 | `pnpm test` | Run tests with Jest (ts-jest) |
 | `pnpm lint` | ESLint on `src/**/*.ts` |
 | `pnpm type-check` | `tsc --noEmit` |
 
-The binary name is `qiforge-cli`. Build produces a single `dist/cli.js` with shebang, targeting node22 via tsup.
+The binary name is `qiforge-cli`. Build produces a single `dist/cli.js` with shebang.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ The binary name is `qiforge-cli`. Build produces a single `dist/cli.js` with she
 All commands implement `Command` interface (`src/commands/index.ts`) and return `CLIResult { success, data?, error? }`. Commands are registered in `CLIManager.registerCommands()` in `src/cli.ts`.
 
 **Entry flow** (`src/cli.ts` → `CLIManager`):
-1. Parse args: `--init` runs init, `--chat`/`chat` runs chat, `offline-login` triggers offline auth, `--help` shows help, no args → interactive select menu
+1. Parse args: `new` scaffolds (no login with `--skip-entity`), `plugin new` and `setup-signing-key` run without login, `offline-login` triggers offline auth, `--help` shows help (never touches `~/.wallet.json`), no args → interactive select menu
 2. `handleAuthentication()` checks for persisted wallet (`~/.wallet.json`), prompts login choice (SignX or Offline) if missing
 3. `registerCommands()` instantiates and registers all commands
 4. Route to selected command's `execute()` method
@@ -42,9 +42,11 @@ All commands implement `Command` interface (`src/commands/index.ts`) and return 
 - **`RuntimeConfig`** (`src/utils/runtime-config.ts`) — Singleton for transient per-session state (projectPath, network, entityDid, registerUserResult). Use `config.addValue(key, value)` / `config.getOrThrow(key)`.
 - **`SignXClient`** (`src/utils/signx/signx.ts`) — Wraps `@ixo/signx-sdk`. Used only in SignX mode. Flow: `transact()` → `displayTransactionQRCode()` → `pollNextTransaction()` → `awaitTransaction()`.
 - **`CreateEntity`** (`src/utils/entity.ts`) — Core service for oracle entity provisioning. Orchestrates profile upload to Matrix, user registration, `MsgCreateEntity` broadcast, domain card/AuthZ/fees linked resource creation.
-- **`registerUserSimplified()`** (`src/utils/account/simplifiedRegistration.ts`) — Creates a complete oracle identity: generates mnemonic → secp wallet → funds account → creates IID on-chain → provisions Matrix account with E2EE → stores encrypted mnemonic as room state.
+- **`registerUserSimplified()`** (`src/utils/account/simplifiedRegistration.ts`) — Creates a complete oracle identity: generates mnemonic → secp wallet → funds account → creates IID on-chain with the Ed25519 UCAN signing key as a verification method → provisions Matrix account with E2EE → stores the encrypted Matrix mnemonic and the encrypted signing mnemonic (`encrypted_mnemonic_ed_signing`) as account-room state.
+- **Signing key** (`src/utils/account/signing-key.ts`, `signing-key-provision.ts`) — derivation (SHA-256 of the mnemonic → Ed25519 seed, the `@ixo/ucan` `signerFromMnemonic` contract, pinned by golden-vector tests), the IID verification, room storage. The Workers runtime only reads the key; the CLI provisions it (`setup-signing-key` for older oracles).
+- **Scaffold** (`src/commands/new.command.ts`, `src/utils/oracle-project.ts`, `src/utils/runtime-versions.ts`) — renders `src/templates/basic` with `SCAFFOLD_VERSIONS` (one exact runtime release and the companion versions from its npm manifest), then re-renders the wrangler configs with the provisioned identity and writes `.dev.vars` + `oracle-credentials.env` (`src/utils/provisioned-project-files.ts`).
+- **Oracle Matrix sessions** (`src/utils/oracle-matrix-session.ts`) — Workers oracles have no stored access token; commands log the oracle's account in with its password, act, and log the device out.
 - **`parseCliFlags()`** (`src/utils/cli-flags.ts`) — Simple flag parser for `process.argv`. Supports `--key value`, `--key=value`, and `--boolean-flag` syntax. Used by commands to support non-interactive mode.
-- **`saveOracleConfig()` / `loadOracleConfig()`** (`src/utils/oracle-config.ts`) — Saves/loads `oracle.config.json` with oracle metadata, LLM model, prompt config, skills, and MCP servers. Written to both project root and `apps/app/` for Docker builds.
 
 ### External Dependencies Pattern
 
@@ -57,7 +59,8 @@ All commands implement `Command` interface (`src/commands/index.ts`) and return 
 - Interactive prompts use `@clack/prompts` (`p.group()`, `p.text()`, `p.select()`, `p.spinner()`)
 - Commands support non-interactive mode via `parseCliFlags()` — check `flags['no-interactive'] === 'true'` then use flag values with fallback to prompts
 - Input validation uses Zod via helpers in `src/utils/common.ts` (`checkRequiredString`, `checkRequiredURL`, `checkRequiredNumber`, `checkIsEntityDid`, `checkRequiredPin`) — these return `string | undefined` to match clack's validation API
-- Network URLs (RPC, Matrix, SignX, bots) are defined as constants in `src/utils/common.ts` keyed by `NETWORK` type (`devnet | testnet | mainnet`)
+- Network URLs are constants keyed by `NETWORK` (`devnet | testnet | mainnet`): service endpoints the scaffold writes into wrangler `vars` live in the dependency-free `src/utils/network-endpoints.ts` (re-exported by `src/utils/common.ts`), the rest (RPC, bots, protocol DIDs) in `common.ts`
+- Unit tests run under ts-jest (CommonJS): modules they import must not pull in ESM-only packages (`@clack/prompts`, `@cosmjs/*`, `@ixo/impactxclient-sdk`); keep testable logic in dependency-free modules
 - Error handling uses custom classes in `src/utils/errors.ts` with `handleError()` utility
 - Constructor injection for `Wallet` and `RuntimeConfig` into commands
-- `oracle.config.json` stores oracle metadata including AI config (model, prompts, skills, MCP servers) — validated with Zod schema in `src/utils/oracle-config.ts`
+- Template `.ts` files carry a `.tmpl` suffix so the CLI's own `tsc`, jest and eslint never pick them up; `_gitignore` renders as `.gitignore` (npm drops `.gitignore` files from published packages)

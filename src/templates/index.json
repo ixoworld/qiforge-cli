@@ -2,8 +2,8 @@
   "templates": [
     {
       "name": "basic",
-      "description": "Standalone QiForge oracle: createOracleApp + Matrix wiring + EditorPlugin + Claude Code skill.",
-      "tags": ["starter", "minimal"]
+      "description": "Cloudflare Workers oracle on @ixo/oracle-runtime-workers: createOracleWorker, oracle + Matrix gateway scripts, bundled plugins, Claude Code skill.",
+      "tags": ["starter", "workers"]
     }
   ]
 }

@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import {
   renderTemplate,
+  renderTemplateFile,
   substitute,
   toCamelCase,
   toPascalCase,
@@ -89,6 +90,28 @@ describe('renderTemplate', () => {
     expect(
       readFileSync(path.join(target, 'alice', 'greeting.txt'), 'utf8'),
     ).toBe('hello from alice');
+  });
+
+  it('renders _gitignore as .gitignore (npm never publishes a .gitignore)', () => {
+    const source = makeTmpDir('src-gitignore');
+    const target = makeTmpDir('dst-gitignore');
+    writeFileSync(path.join(source, '_gitignore'), '.dev.vars\n');
+    renderTemplate({ sourceDir: source, targetDir: target, vars: {}, overwrite: true });
+    expect(readFileSync(path.join(target, '.gitignore'), 'utf8')).toBe('.dev.vars\n');
+  });
+
+  it('re-renders a single file over an existing one', () => {
+    const source = makeTmpDir('src-single');
+    const target = makeTmpDir('dst-single');
+    writeFileSync(path.join(source, 'config.jsonc.tmpl'), '{ "did": "{{did}}" }');
+    writeFileSync(path.join(target, 'config.jsonc'), '{ "did": "placeholder" }');
+    const written = renderTemplateFile({
+      sourceFile: path.join(source, 'config.jsonc.tmpl'),
+      targetDir: target,
+      vars: { did: 'did:ixo:ixo1abc' },
+    });
+    expect(written).toBe(path.join(target, 'config.jsonc'));
+    expect(readFileSync(written, 'utf8')).toBe('{ "did": "did:ixo:ixo1abc" }');
   });
 
   it('throws when targetDir is non-empty and overwrite is false', () => {

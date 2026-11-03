@@ -1,0 +1,13 @@
+{
+  // The Worker the unit tests run in (vitest.config.ts). It has no bindings:
+  // tests construct plugins and call their tools directly.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "{{workerName}}-test",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "@ixo/matrix-bot-workers-sdk/crypto-wasm-shim",
+    "jsdom": "../node_modules/@ixo/oracle-runtime-workers/src/plugins/editor/jsdom-shim.ts",
+  },
+}

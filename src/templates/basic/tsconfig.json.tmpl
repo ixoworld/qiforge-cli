@@ -4,19 +4,16 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2023"],
-    "outDir": "./dist",
+    "types": ["@cloudflare/workers-types/experimental", "node"],
     "strict": true,
-    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "isolatedModules": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
+    "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noUncheckedIndexedAccess": false,
-    "declaration": false,
-    "sourceMap": true,
-    "incremental": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "types": ["node"]
+    "noEmit": true
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*", "test/**/*", "worker-configuration.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }

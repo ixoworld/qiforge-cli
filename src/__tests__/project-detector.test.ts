@@ -13,7 +13,7 @@ afterAll(() => {
   rmSync(TMP_ROOT, { recursive: true, force: true });
 });
 
-function makeProject(layout: { hasRuntime: boolean; subdir?: string }): {
+function makeProject(layout: { runtime: 'workers' | 'node' | 'none'; subdir?: string }): {
   root: string;
   startDir: string;
 } {
@@ -23,9 +23,12 @@ function makeProject(layout: { hasRuntime: boolean; subdir?: string }): {
     path.join(root, 'package.json'),
     JSON.stringify({
       name: 'fake',
-      dependencies: layout.hasRuntime
-        ? { '@ixo/oracle-runtime': '^0.0.1' }
-        : { lodash: '^4.0.0' },
+      dependencies:
+        layout.runtime === 'workers'
+          ? { '@ixo/oracle-runtime-workers': '0.37.0' }
+          : layout.runtime === 'node'
+            ? { '@ixo/oracle-runtime': '^1.93.0' }
+            : { lodash: '^4.0.0' },
     }),
   );
 
@@ -36,14 +39,14 @@ function makeProject(layout: { hasRuntime: boolean; subdir?: string }): {
 
 describe('detectOracleProject', () => {
   it('finds the project root when started at root', () => {
-    const { root, startDir } = makeProject({ hasRuntime: true });
+    const { root, startDir } = makeProject({ runtime: 'workers' });
     const result = detectOracleProject(startDir);
     expect(result.root).toBe(root);
   });
 
   it('walks up from a nested directory', () => {
     const { root, startDir } = makeProject({
-      hasRuntime: true,
+      runtime: 'workers',
       subdir: path.join('src', 'plugins', 'deep'),
     });
     const result = detectOracleProject(startDir);
@@ -51,8 +54,13 @@ describe('detectOracleProject', () => {
   });
 
   it('throws when no oracle project is found', () => {
-    const { startDir } = makeProject({ hasRuntime: false });
+    const { startDir } = makeProject({ runtime: 'none' });
     expect(() => detectOracleProject(startDir)).toThrow(/oracle project/);
+  });
+
+  it('refuses a project on the deprecated Node runtime', () => {
+    const { startDir } = makeProject({ runtime: 'node' });
+    expect(() => detectOracleProject(startDir)).toThrow(/deprecated Node runtime/);
   });
 });
 

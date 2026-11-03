@@ -1,30 +1,33 @@
 {
-  "name": "{{name}}",
+  "name": "{{workerName}}",
   "version": "0.1.0",
-  "description": "{{description}}",
+  "description": {{descriptionJson}},
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.build.json --noEmit",
-    "test": "vitest run"
+    "dev": "wrangler dev -c wrangler.jsonc -c wrangler.gateway.jsonc",
+    "deploy": "wrangler deploy -c wrangler.gateway.jsonc && wrangler deploy -c wrangler.jsonc",
+    "deploy:gateway": "wrangler deploy -c wrangler.gateway.jsonc",
+    "deploy:oracle": "wrangler deploy -c wrangler.jsonc",
+    "build": "wrangler deploy --dry-run --outdir dist/gateway -c wrangler.gateway.jsonc && wrangler deploy --dry-run --outdir dist/oracle -c wrangler.jsonc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cf-typegen": "wrangler types -c wrangler.jsonc"
   },
   "dependencies": {
-    "@ixo/oracle-runtime": "{{runtimeVersion}}",
-    "@nestjs/common": "^11.1.19",
-    "dotenv": "^16.4.7",
-    "matrix-js-sdk": "^37.11.0",
-    "reflect-metadata": "^0.2.2"
+    "@ixo/matrix-bot-workers-sdk": "{{botSdkVersion}}",
+    "@ixo/oracle-runtime-workers": "{{runtimeVersion}}",
+    "zod": "{{zodVersion}}"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.12",
+    "@cloudflare/workers-types": "{{workersTypesVersion}}",
     "@types/node": "^22.10.7",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "vitest": "^3.2.4"
+    "typescript": "^5.9.3",
+    "vitest": "{{vitestVersion}}",
+    "wrangler": "{{wranglerVersion}}"
   }
 }

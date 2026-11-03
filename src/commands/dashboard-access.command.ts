@@ -2,7 +2,6 @@ import * as p from '@clack/prompts';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 import { cosmos, utils } from '@ixo/impactxclient-sdk';
 import { NETWORK } from '@ixo/signx-sdk/types/types/transact';
-import { readFileSync } from 'fs';
 import { Command } from '.';
 import { CLIResult } from '../types';
 import {
@@ -19,7 +18,13 @@ import {
   selectNetwork,
 } from '../utils/common';
 import { fetchOrCreateEdMnemonic } from '../utils/composio';
-import { deriveHomeServerUrl } from '../utils/encryption-key';
+import {
+  type OracleMatrixCredentials,
+  oracleMatrixCredentialsFromEnv,
+  promptOracleMatrixCredentials,
+  withOracleMatrixToken,
+} from '../utils/oracle-matrix-session';
+import { parseEnvFile } from '../utils/oracle-project';
 import { RuntimeConfig } from '../utils/runtime-config';
 
 /** Short-lived, single-shot invocation — no reason to outlive the request. */
@@ -37,43 +42,17 @@ function accountAddressFromDid(did: string): string | undefined {
   return ACCOUNT_DID_REGEX.exec(did)?.[1];
 }
 
-/** The oracle-project .env var names (match the oracle runtime's). */
-const ENV_KEYS = [
-  'SECP_MNEMONIC',
-  'MATRIX_ORACLE_ADMIN_ACCESS_TOKEN',
-  'MATRIX_ACCOUNT_ROOM_ID',
-  'MATRIX_VALUE_PIN',
-] as const;
-
 interface OracleCredentials {
   secpMnemonic: string;
-  matrixAccessToken: string;
-  matrixRoomId: string;
   pin: string;
+  matrix: OracleMatrixCredentials;
 }
 
-/** Minimal .env parser — KEY=value lines, #-comments, optional quotes. */
-function parseEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const content = readFileSync(path, 'utf8');
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    out[key] = value;
-  }
-  return out;
-}
-
+/**
+ * The oracle's keys from `oracle-credentials.env` (written by `qiforge-cli
+ * new`) or a Node-era project `.env`: SECP_MNEMONIC, MATRIX_VALUE_PIN, the
+ * account room and the bot's password (or a legacy access token).
+ */
 function loadOracleCredentials(envPath: string): OracleCredentials {
   let env: Record<string, string>;
   try {
@@ -83,15 +62,14 @@ function loadOracleCredentials(envPath: string): OracleCredentials {
       `Failed to read env file ${envPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const missing = ENV_KEYS.filter((key) => !env[key]);
+  const missing = ['SECP_MNEMONIC', 'MATRIX_VALUE_PIN'].filter((key) => !env[key]);
   if (missing.length > 0) {
     throw new Error(`Env file ${envPath} is missing: ${missing.join(', ')}`);
   }
   return {
     secpMnemonic: env.SECP_MNEMONIC as string,
-    matrixAccessToken: env.MATRIX_ORACLE_ADMIN_ACCESS_TOKEN as string,
-    matrixRoomId: env.MATRIX_ACCOUNT_ROOM_ID as string,
     pin: env.MATRIX_VALUE_PIN as string,
+    matrix: oracleMatrixCredentialsFromEnv(env, envPath),
   };
 }
 
@@ -140,7 +118,7 @@ export class DashboardAccessCommand implements Command {
           }),
         entityDid: () =>
           p.text({
-            message: 'Oracle entity DID (ORACLE_ENTITY_DID from .env):',
+            message: 'Oracle entity DID (ORACLE_ENTITY_DID in wrangler.jsonc):',
             initialValue: this.config.getValue('entityDid')?.toString() ?? '',
             validate(value) {
               return checkIsEntityDid(value);
@@ -155,42 +133,24 @@ export class DashboardAccessCommand implements Command {
       },
     );
 
-    // Oracle credentials: wholesale from the project's .env, or prompted
+    // Oracle credentials: wholesale from oracle-credentials.env, or prompted
     let creds: OracleCredentials;
     if (flags.env) {
       creds = loadOracleCredentials(flags.env);
       p.log.info(`Oracle credentials loaded from ${flags.env}`);
     } else {
-      creds = await p.group(
+      const keys = await p.group(
         {
           secpMnemonic: () =>
             p.password({
-              message: 'Oracle wallet mnemonic (SECP_MNEMONIC from .env):',
+              message: 'Oracle wallet mnemonic (SECP_MNEMONIC in oracle-credentials.env):',
               validate(value) {
                 return checkRequiredString(value, 'Oracle mnemonic is required');
               },
             }),
-          matrixRoomId: () =>
-            p.text({
-              message: 'Oracle Matrix room ID (MATRIX_ACCOUNT_ROOM_ID from .env):',
-              placeholder: '!abc123:devmx.ixo.earth',
-              validate(value) {
-                if (!value || !value.startsWith('!') || !value.includes(':')) {
-                  return 'Matrix room ID must be in format !roomId:server (e.g. !abc123:devmx.ixo.earth)';
-                }
-                return checkRequiredString(value, 'Matrix room ID is required');
-              },
-            }),
-          matrixAccessToken: () =>
-            p.password({
-              message: 'Oracle Matrix access token (MATRIX_ORACLE_ADMIN_ACCESS_TOKEN from .env):',
-              validate(value) {
-                return checkRequiredString(value, 'Matrix access token is required');
-              },
-            }),
           pin: () =>
             p.password({
-              message: 'Oracle PIN (MATRIX_VALUE_PIN from .env):',
+              message: 'Oracle PIN (MATRIX_VALUE_PIN in .dev.vars):',
               validate(value) {
                 return checkRequiredPin(value);
               },
@@ -203,6 +163,7 @@ export class DashboardAccessCommand implements Command {
           },
         },
       );
+      creds = { ...keys, matrix: await promptOracleMatrixCredentials() };
     }
 
     return this.linkDashboard({
@@ -228,7 +189,7 @@ export class DashboardAccessCommand implements Command {
     const envPath = flags.env;
     if (!dashboardDid || !entityDid || !envPath) {
       throw new Error(
-        '--no-interactive requires --grant <dashboardDid>, --entity-did <did> and --env <path-to-oracle-project-.env>',
+        '--no-interactive requires --grant <dashboardDid>, --entity-did <did> and --env <path-to-oracle-credentials.env>',
       );
     }
     const dashboardDidError = checkIsIidDid(dashboardDid);
@@ -262,7 +223,6 @@ export class DashboardAccessCommand implements Command {
     creds: OracleCredentials;
     depositGrant: 'prompt' | 'grant' | 'skip';
   }): Promise<CLIResult> {
-    const homeServerUrl = deriveHomeServerUrl(creds.matrixRoomId);
     const s = p.spinner();
 
     // The oracle's SECP address is the invocation issuer identity; the engine
@@ -279,20 +239,22 @@ export class DashboardAccessCommand implements Command {
     const issuerDid = `did:ixo:${account.address}` as const;
     s.stop(`Oracle wallet: ${account.address}`);
 
-    // The Ed25519 claim-signing key signs the invocation (PIN-encrypted in the
+    // The Ed25519 signing key signs the invocation (PIN-encrypted in the
     // oracle's Matrix account room state). Fetch-only: a freshly-minted key
-    // would not be the runtime-provisioned one — fail loudly instead.
+    // would not be on the oracle's DID document — fail loudly instead.
     s.start('Fetching the oracle claim-signing key from Matrix...');
     let edMnemonic: string;
     try {
-      edMnemonic = await fetchOrCreateEdMnemonic(
-        {
-          matrixHomeServerUrl: homeServerUrl,
-          matrixAccessToken: creds.matrixAccessToken,
-          matrixRoomId: creds.matrixRoomId,
-          pin: creds.pin,
-        },
-        { allowCreate: false },
+      edMnemonic = await withOracleMatrixToken(creds.matrix, (matrixAccessToken) =>
+        fetchOrCreateEdMnemonic(
+          {
+            matrixHomeServerUrl: creds.matrix.homeServerUrl,
+            matrixAccessToken,
+            matrixRoomId: creds.matrix.roomId,
+            pin: creds.pin,
+          },
+          { allowCreate: false },
+        ),
       );
     } catch (error) {
       s.stop('Failed to fetch the claim-signing key');

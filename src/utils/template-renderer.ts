@@ -29,8 +29,25 @@ export interface RenderTemplateOptions {
 }
 
 /**
+ * Template entries stored under another name because `npm publish` never
+ * ships a file called `.gitignore` (npm-packlist drops it from every package),
+ * so a template that kept it under its real name would scaffold projects with
+ * no ignore file at all — and with secrets in `.dev.vars`.
+ */
+const RENAMED_ENTRIES: Readonly<Record<string, string>> = {
+  _gitignore: '.gitignore',
+};
+
+/** The file name a template entry renders to (after `.tmpl` is stripped). */
+export function renderedEntryName(entry: string, vars: TemplateVars): string {
+  const name = substitute(entry, vars).replace(/\.tmpl$/, '');
+  return RENAMED_ENTRIES[name] ?? name;
+}
+
+/**
  * Recursively copy a template tree, substituting `{{key}}` in file contents
- * AND filenames, and stripping a trailing `.tmpl` extension.
+ * AND filenames, and stripping a trailing `.tmpl` extension. Entries in
+ * `RENAMED_ENTRIES` (e.g. `_gitignore`) land under their real name.
  *
  * Example: `{{name}}.plugin.ts.tmpl` with `vars.name = 'climate'`
  *          → `climate.plugin.ts`
@@ -48,8 +65,7 @@ export function renderTemplate(opts: RenderTemplateOptions): void {
 
   for (const entry of readdirSync(sourceDir)) {
     const srcPath = path.join(sourceDir, entry);
-    const renderedEntry = substitute(entry, vars).replace(/\.tmpl$/, '');
-    const dstPath = path.join(targetDir, renderedEntry);
+    const dstPath = path.join(targetDir, renderedEntryName(entry, vars));
 
     if (statSync(srcPath).isDirectory()) {
       renderTemplate({ sourceDir: srcPath, targetDir: dstPath, vars, overwrite });
@@ -63,6 +79,26 @@ export function renderTemplate(opts: RenderTemplateOptions): void {
       writeFileSync(dstPath, readFileSync(srcPath));
     }
   }
+}
+
+/**
+ * Render one `.tmpl` file of a template into `targetDir`, overwriting the
+ * file there. Used to re-render a file whose values are only known after the
+ * rest of the tree was scaffolded (e.g. the wrangler configs once the oracle
+ * is provisioned).
+ */
+export function renderTemplateFile(opts: {
+  sourceFile: string;
+  targetDir: string;
+  vars: TemplateVars;
+}): string {
+  const { sourceFile, targetDir, vars } = opts;
+  if (!existsSync(sourceFile)) {
+    throw new Error(`Template file not found: ${sourceFile}`);
+  }
+  const dstPath = path.join(targetDir, renderedEntryName(path.basename(sourceFile), vars));
+  writeFileSync(dstPath, substitute(readFileSync(sourceFile, 'utf8'), vars));
+  return dstPath;
 }
 
 /** kebab-case → PascalCase: `my-thing` → `MyThing`. */
