@@ -41,7 +41,7 @@ Without a UCAN signing key (no `ORACLE_SIGNING_MNEMONIC` and nothing readable in
 
 ## Common optional keys
 
-`LOG_LEVEL` · `ORACLE_DEBUG_ROUTES` (keep `false` deployed) · `DEFAULT_MODEL` · `DECISION_PROVIDER` / `CAPABILITY_ROUTER` · `MATRIX_CHAT_DELIVERY` · `ORACLE_PUBLIC_URL` (with `ARTIFACT_BUCKET`) · `LANGSMITH_*` (secrets for the key) · `SLACK_ALERT_WEBHOOK_URL` (secret).
+`LOG_LEVEL` · `ORACLE_DEBUG_ROUTES` (keep `false` deployed) · `DEFAULT_MODEL` · `DECISION_PROVIDER` / `CAPABILITY_ROUTER` · `MATRIX_CHAT_DELIVERY` · `ORACLE_PUBLIC_URL` (with `ARTIFACT_BUCKET`) · `LANGSMITH_*` (secrets for the key) · `TRACES_API_KEY` (secret) with a `TRACES` service binding or `TRACES_ENDPOINT`: IXO Traces, one turn per request after the reply (runtime 0.60.0+) · `SLACK_ALERT_WEBHOOK_URL` (secret).
 
 ## Adding your own
 

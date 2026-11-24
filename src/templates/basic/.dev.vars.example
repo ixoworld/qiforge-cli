@@ -38,3 +38,11 @@ OPEN_ROUTER_API_KEY=
 # LANGSMITH_TRACING=true
 # LANGSMITH_API_KEY=
 # LANGSMITH_PROJECT=
+
+# IXO Traces (optional): one finished turn per request, sent after the reply.
+# On exactly when the write key and a destination are set; independent of
+# LangSmith. Prefer a `TRACES` service binding in wrangler.jsonc
+# ("services": [{ "binding": "TRACES", "service": "<traces worker>" }]) over
+# the public endpoint. Needs @ixo/oracle-runtime-workers 0.60.0 or later.
+# TRACES_API_KEY=ixt_w_...
+# TRACES_ENDPOINT=https://<traces host>
