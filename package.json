@@ -1,6 +1,6 @@
 {
   "name": "qiforge-cli",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Provision QiForge oracles on IXO and scaffold them on Cloudflare Workers (@ixo/oracle-runtime-workers)",
   "main": "dist/cli.js",
   "type": "module",

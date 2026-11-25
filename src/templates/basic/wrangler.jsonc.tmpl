@@ -71,6 +71,10 @@
     ],
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserOracleDO"] }],
+  // Tracing (optional): LangSmith, IXO Traces or both, see .dev.vars.example.
+  // IXO Traces needs runtime 0.63.0+. On IXO's Cloudflare account bind the
+  // traces Worker; elsewhere set TRACES_ENDPOINT in `vars` instead.
+  // "services": [{ "binding": "TRACES", "service": "ixo-langsmith-traces" }],
   // Non-secret configuration. Written by `qiforge-cli new` from the oracle it
   // provisioned on {{network}}; every variable is documented in the runtime's
   // configuration reference.
