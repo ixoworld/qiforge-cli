@@ -34,15 +34,24 @@ OPEN_ROUTER_API_KEY=
 # (`qiforge-cli create-composio-key`). Without it the plugin stays off.
 # COMPOSIO_API_KEY=
 
-# LangSmith tracing (optional).
-# LANGSMITH_TRACING=true
+# Tracing (optional, off by default). Trace turns to LangSmith, to IXO Traces
+# (hosted by IXO, or your own instance), or to both at once. Setup, cost and
+# checks: https://github.com/ixoworld/qiforge/blob/main/packages/oracle-runtime-workers/docs/tracing.md
+#
+# LangSmith: the key turns it on; LANGSMITH_TRACING=true traces every turn, or
+# list the DIDs to trace in LANGSMITH_TRACED_DIDS (`*` = everyone). EU
+# accounts set LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com.
 # LANGSMITH_API_KEY=
+# LANGSMITH_TRACING=true
 # LANGSMITH_PROJECT=
-
-# IXO Traces (optional): one finished turn per request, sent after the reply.
-# On exactly when the write key and a destination are set; independent of
-# LangSmith. Prefer a `TRACES` service binding in wrangler.jsonc
-# ("services": [{ "binding": "TRACES", "service": "<traces worker>" }]) over
-# the public endpoint. Needs @ixo/oracle-runtime-workers 0.60.0 or later.
+# LANGSMITH_TRACED_DIDS=
+# LANGSMITH_ENDPOINT=
+#
+# IXO Traces: needs @ixo/oracle-runtime-workers 0.63.0 or later (this
+# scaffold pins 0.37.0, which has LangSmith only: bump the runtime first).
+# On exactly when the write key and a destination are set. On IXO's
+# Cloudflare account prefer a service binding in wrangler.jsonc:
+#   "services": [{ "binding": "TRACES", "service": "ixo-langsmith-traces" }]
+# Otherwise set the endpoint. Ask IXO for a project and a write key.
 # TRACES_API_KEY=ixt_w_...
-# TRACES_ENDPOINT=https://<traces host>
+# TRACES_ENDPOINT=https://traces.ixo.earth
